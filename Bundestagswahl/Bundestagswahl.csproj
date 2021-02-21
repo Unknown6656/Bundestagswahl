@@ -7,11 +7,23 @@
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <LangVersion>preview</LangVersion>
         <ApplicationIcon>favicon.ico</ApplicationIcon>
+        <Authors>unknown6656</Authors>
+        <Copyright>Copyright © unknown6656, 2018-2021</Copyright>
+        <PackageIcon>favicon.ico</PackageIcon>
+        <PackageProjectUrl>https://github.com/Unknown6656/Bundestagswahl</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/Unknown6656/Bundestagswahl</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
     </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="HtmlAgilityPack" Version="1.11.30" />
         <PackageReference Include="LiveCharts" Version="0.9.7" />
         <PackageReference Include="LiveCharts.Wpf" Version="0.9.7" />
         <PackageReference Include="Unknown6656.Core" Version="1.0.16" />
+    </ItemGroup>
+    <ItemGroup>
+      <None Include="favicon.ico">
+        <Pack>True</Pack>
+        <PackagePath></PackagePath>
+      </None>
     </ItemGroup>
 </Project>
