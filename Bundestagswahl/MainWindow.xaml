@@ -1,0 +1,92 @@
+﻿<Window x:Class="Bundestagswahl.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:lvc="clr-namespace:LiveCharts.Wpf;assembly=LiveCharts.Wpf"
+        mc:Ignorable="d" FontFamily="Consolas" ResizeMode="CanMinimize" WindowStartupLocation="CenterScreen"
+        Title="MainWindow" Height="900.951" Width="1948.387">
+    <Grid>
+        <GroupBox Header="Overview" HorizontalAlignment="Left" Height="405" Margin="10,10,0,0" VerticalAlignment="Top" Width="1914">
+            <Grid>
+                <Label Content="Number of polls:" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10,8,0,0"/>
+                <ScrollBar x:Name="sc_pollcnt" HorizontalAlignment="Left" Margin="126,10,0,0" VerticalAlignment="Top" Orientation="Horizontal" Width="495" Height="22" ValueChanged="sc_pollcnt_ValueChanged" Minimum="5" Maximum="200" LargeChange="5" Value="20" SmallChange="1"/>
+                <Label x:Name="lbl_pollcnt" Content="20" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="626,8,0,0" Width="44"/>
+                <Button x:Name="btn_fetchpolls" Content="Update all official polls" HorizontalAlignment="Left" Margin="675,10,0,0" VerticalAlignment="Top" Width="289" Height="22" Click="update_polls_alltime"/>
+                <Button Content="Fetch the last 1..3 week's polls" HorizontalAlignment="Left" Margin="969,10,0,0" VerticalAlignment="Top" Width="289" Height="22" Click="update_polls_week"/>
+                <lvc:CartesianChart x:Name="lvc_history" DisableAnimations="True" Height="335" Margin="0,48,0,0" VerticalAlignment="Top"/>
+            </Grid>
+        </GroupBox>
+        <GroupBox Header="Current Poll" HorizontalAlignment="Left" Height="440" Margin="10,420,0,0" VerticalAlignment="Top" Width="883">
+            <Grid>
+                <Label Content="Select poll:" HorizontalAlignment="Left" Margin="10,10,0,0" VerticalAlignment="Top" Width="108" Height="26"/>
+                <ComboBox x:Name="cb_polls" HorizontalAlignment="Left" Margin="10,36,0,0" VerticalAlignment="Top" Width="128" SelectionChanged="Cb_polls_OnSelectionChanged" Height="22"/>
+                <lvc:CartesianChart x:Name="lvc_overview" DisableAnimations="True" HorizontalAlignment="Left" Height="418" Margin="143,0,0,0" VerticalAlignment="Top" Width="332"/>
+                <Label Content="CDU/CSU&#10;&#10;SPD&#10;&#10;FDP&#10;&#10;AfD&#10;&#10;Grüne&#10;&#10;Linke&#10;&#10;Piraten&#10;&#10;Freie Wähler&#10;&#10;Sonstige" HorizontalAlignment="Left" Margin="43,158,0,0" VerticalAlignment="Top" Width="95" Height="250"/>
+                <Ellipse Fill="Black" HorizontalAlignment="Left" Height="25" Margin="13,158,0,0" Stroke="Black" VerticalAlignment="Top" Width="25"/>
+                <Ellipse Fill="Red" HorizontalAlignment="Left" Height="25" Margin="13,185,0,0" Stroke="Black" VerticalAlignment="Top" Width="25"/>
+                <Ellipse Fill="Gold" HorizontalAlignment="Left" Height="25" Margin="13,214,0,0" Stroke="Black" VerticalAlignment="Top" Width="25"/>
+                <Ellipse Fill="DodgerBlue" HorizontalAlignment="Left" Height="25" Margin="13,242,0,0" Stroke="Black" VerticalAlignment="Top" Width="25"/>
+                <Ellipse Fill="ForestGreen" HorizontalAlignment="Left" Height="25" Margin="13,271,0,0" Stroke="Black" VerticalAlignment="Top" Width="25"/>
+                <Ellipse Fill="Purple" HorizontalAlignment="Left" Height="25" Margin="13,299,0,0" Stroke="Black" VerticalAlignment="Top" Width="25"/>
+                <Ellipse Fill="DarkOrange" HorizontalAlignment="Left" Height="25" Margin="13,326,0,0" Stroke="Black" VerticalAlignment="Top" Width="25"/>
+                <Ellipse Fill="blue" HorizontalAlignment="Left" Height="25" Margin="13,354,0,0" Stroke="Black" VerticalAlignment="Top" Width="25"/>
+                <Ellipse Fill="Gray" HorizontalAlignment="Left" Height="25" Margin="13,381,0,0" Stroke="Black" VerticalAlignment="Top" Width="25"/>
+                <lvc:AngularGauge Grid.Column="0" x:Name="lvc_distr" FromValue="0" ToValue="100" Value="50" LabelsStep="10" SectionsInnerRadius="0.4" Wedge="180" NeedleFill="Transparent" TicksForeground="Transparent" Foreground="Transparent" LabelsEffect="{x:Null}" Margin="480,10,0,10"/>
+                <Rectangle Fill="DarkRed" Width="2" Margin="675,0,194,274"/>
+                <Label Content="Current party distribution" Margin="557,227,76,10" FontSize="16" HorizontalAlignment="Center"/>
+            </Grid>
+        </GroupBox>
+        <GroupBox Header="(Hypothetic) Coaltitions" HorizontalAlignment="Left" Height="440" Margin="898,420,-190,0" VerticalAlignment="Top" Width="1026">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="200"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="200"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="200"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="200"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="200"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="200"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="200"/>
+                </Grid.ColumnDefinitions>
+                <lvc:AngularGauge Grid.Row="1" Grid.Column="0" x:Name="lvc_coa1" FromValue="0" ToValue="100" Value="50" LabelsStep="10" Width="200" Height="200" SectionsInnerRadius="0.5" Wedge="180" NeedleFill="Transparent" LabelsEffect="{x:Null}"/>
+                <Label Grid.Row="1" Grid.Column="0" x:Name="prc_coa1" HorizontalAlignment="Left" Margin="0,121,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="28" FontSize="16" FontWeight="Bold"/>
+                <Label Grid.Row="1" Grid.Column="0" x:Name="lbl_coa1" HorizontalAlignment="Left" Margin="0,154,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="46"/>
+                <lvc:AngularGauge Grid.Row="1" Grid.Column="2" x:Name="lvc_coa2" FromValue="0" ToValue="100" Value="50" LabelsStep="10" Width="200" Height="200" SectionsInnerRadius="0.5" Wedge="180" NeedleFill="Transparent" LabelsEffect="{x:Null}"/>
+                <Label Grid.Row="1" Grid.Column="2" x:Name="prc_coa2" HorizontalAlignment="Left" Margin="0,121,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="28" FontSize="16" FontWeight="Bold"/>
+                <Label Grid.Row="1" Grid.Column="2" x:Name="lbl_coa2" HorizontalAlignment="Left" Margin="0,154,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="46"/>
+                <lvc:AngularGauge Grid.Row="1" Grid.Column="4" x:Name="lvc_coa3" FromValue="0" ToValue="100" Value="50" LabelsStep="10" Width="200" Height="200" SectionsInnerRadius="0.5" Wedge="180" NeedleFill="Transparent" LabelsEffect="{x:Null}"/>
+                <Label Grid.Row="1" Grid.Column="4" x:Name="prc_coa3" HorizontalAlignment="Left" Margin="0,121,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="28" FontSize="16" FontWeight="Bold"/>
+                <Label Grid.Row="1" Grid.Column="4" x:Name="lbl_coa3" HorizontalAlignment="Left" Margin="0,154,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="46"/>
+                <lvc:AngularGauge Grid.Row="1" Grid.Column="6" x:Name="lvc_coa4" FromValue="0" ToValue="100" Value="50" LabelsStep="10" Width="200" Height="200" SectionsInnerRadius="0.5" Wedge="180" NeedleFill="Transparent" LabelsEffect="{x:Null}"/>
+                <Label Grid.Row="1" Grid.Column="6" x:Name="prc_coa4" HorizontalAlignment="Left" Margin="0,121,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="28" FontSize="16" FontWeight="Bold"/>
+                <Label Grid.Row="1" Grid.Column="6" x:Name="lbl_coa4" HorizontalAlignment="Left" Margin="0,154,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="46"/>
+                <lvc:AngularGauge Grid.Row="1" Grid.Column="8" x:Name="lvc_coa5" FromValue="0" ToValue="100" Value="50" LabelsStep="10" Width="200" Height="200" SectionsInnerRadius="0.5" Wedge="180" NeedleFill="Transparent" LabelsEffect="{x:Null}"/>
+                <Label Grid.Row="1" Grid.Column="8" x:Name="prc_coa5" HorizontalAlignment="Left" Margin="0,121,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="28" FontSize="16" FontWeight="Bold"/>
+                <Label Grid.Row="1" Grid.Column="8" x:Name="lbl_coa5" HorizontalAlignment="Left" Margin="0,154,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="46"/>
+                <lvc:AngularGauge Grid.Row="3" Grid.Column="0" x:Name="lvc_coa6" FromValue="0" ToValue="100" Value="50" LabelsStep="10" Width="200" Height="200" SectionsInnerRadius="0.5" Wedge="180" NeedleFill="Transparent" LabelsEffect="{x:Null}"/>
+                <Label Grid.Row="3" Grid.Column="0" x:Name="prc_coa6" HorizontalAlignment="Left" Margin="0,121,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="28" FontSize="16" FontWeight="Bold"/>
+                <Label Grid.Row="3" Grid.Column="0" x:Name="lbl_coa6" HorizontalAlignment="Left" Margin="0,154,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="46"/>
+                <lvc:AngularGauge Grid.Row="3" Grid.Column="2" x:Name="lvc_coa7" FromValue="0" ToValue="100" Value="50" LabelsStep="10" Width="200" Height="200" SectionsInnerRadius="0.5" Wedge="180" NeedleFill="Transparent" LabelsEffect="{x:Null}"/>
+                <Label Grid.Row="3" Grid.Column="2" x:Name="prc_coa7" HorizontalAlignment="Left" Margin="0,121,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="28" FontSize="16" FontWeight="Bold"/>
+                <Label Grid.Row="3" Grid.Column="2" x:Name="lbl_coa7" HorizontalAlignment="Left" Margin="0,154,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="46"/>
+                <lvc:AngularGauge Grid.Row="3" Grid.Column="4" x:Name="lvc_coa8" FromValue="0" ToValue="100" Value="50" LabelsStep="10" Width="200" Height="200" SectionsInnerRadius="0.5" Wedge="180" NeedleFill="Transparent" LabelsEffect="{x:Null}"/>
+                <Label Grid.Row="3" Grid.Column="4" x:Name="prc_coa8" HorizontalAlignment="Left" Margin="0,121,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="28" FontSize="16" FontWeight="Bold"/>
+                <Label Grid.Row="3" Grid.Column="4" x:Name="lbl_coa8" HorizontalAlignment="Left" Margin="0,154,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="46"/>
+                <lvc:AngularGauge Grid.Row="3" Grid.Column="6" x:Name="lvc_coa9" FromValue="0" ToValue="100" Value="50" LabelsStep="10" Width="200" Height="200" SectionsInnerRadius="0.5" Wedge="180" NeedleFill="Transparent" LabelsEffect="{x:Null}"/>
+                <Label Grid.Row="3" Grid.Column="6" x:Name="prc_coa9" HorizontalAlignment="Left" Margin="0,121,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="28" FontSize="16" FontWeight="Bold"/>
+                <Label Grid.Row="3" Grid.Column="6" x:Name="lbl_coa9" HorizontalAlignment="Left" Margin="0,154,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="46"/>
+                <lvc:AngularGauge Grid.Row="3" Grid.Column="8" x:Name="lvc_coa10" FromValue="0" ToValue="100" Value="50" LabelsStep="10" Width="200" Height="200" SectionsInnerRadius="0.5" Wedge="180" NeedleFill="Transparent" LabelsEffect="{x:Null}"/>
+                <Label Grid.Row="3" Grid.Column="8" x:Name="prc_coa10" HorizontalAlignment="Left" Margin="0,121,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="28" FontSize="16" FontWeight="Bold"/>
+                <Label Grid.Row="3" Grid.Column="8" x:Name="lbl_coa10" HorizontalAlignment="Left" Margin="0,154,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="46"/>
+            </Grid>
+        </GroupBox>
+    </Grid>
+</Window>
