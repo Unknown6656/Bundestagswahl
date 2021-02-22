@@ -1,7 +1,8 @@
 ﻿#define FIXED_PARTY_ORDER
 
-using System.Collections.Generic;
 using System.Windows.Controls;
+
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows.Media;
 using System.Reflection;
@@ -11,6 +12,7 @@ using System;
 
 using LiveCharts.Wpf;
 using LiveCharts;
+using Unknown6656.Common;
 
 namespace Bundestagswahl
 {
@@ -18,46 +20,12 @@ namespace Bundestagswahl
         : Window
     {
         private static readonly Party[] _exclude = { Party.PIRATEN, Party.FW };
-        
+        private static readonly Party[] _parties = Party.All.Except(_exclude).ToArray();
+
         private static readonly MethodInfo _angulargauge_update = typeof(AngularGauge).GetMethod("Draw", BindingFlags.NonPublic | BindingFlags.Instance);
+
         private readonly (AngularGauge ctrl, Label perc, Label desc, Party[] parties)[] _coalitions;
-        private static readonly Party[] _parties = new[]
-        {
-            Party.CDU,
-            Party.SPD,
-            Party.FDP,
-            Party.AFD,
-            Party.GRÜNE,
-            Party.LINKE,
-            Party.PIRATEN,
-            Party.FW,
-            Party.__OTHER__
-        }.Except(_exclude).ToArray();
-        private static readonly Dictionary<Party, Brush> _colors = new Dictionary<Party, Brush>
-        {
-            [Party.CDU] = Brushes.Black,
-            [Party.SPD] = Brushes.Red,
-            [Party.FDP] = Brushes.Gold,
-            [Party.AFD] = Brushes.DodgerBlue,
-            [Party.GRÜNE] = Brushes.ForestGreen,
-            [Party.LINKE] = Brushes.Purple,
-            [Party.PIRATEN] = Brushes.DarkOrange,
-            [Party.FW] = Brushes.Blue,
-            [Party.__OTHER__] = Brushes.Gray,
-        };
-        private static readonly Dictionary<Party, string> _names = new Dictionary<Party, string>
-        {
-            [Party.CDU] = "CDU/CSU",
-            [Party.SPD] = "SPD",
-            [Party.FDP] = "FDP",
-            [Party.AFD] = "AfD",
-            [Party.GRÜNE] = "B.90/Die Grünen",
-            [Party.LINKE] = "Die Linke",
-            [Party.PIRATEN] = "Die Piraten",
-            [Party.FW] = "Freie Wähler",
-            [Party.__OTHER__] = "Other"
-        };
-        private readonly Dictionary<int, PollResult> _polls = new Dictionary<int, PollResult>();
+        private readonly Dictionary<int, PollResult> _polls = new();
 
 
         public MainWindow()
@@ -93,7 +61,7 @@ namespace Bundestagswahl
                     Title = "Parties",
                     FontFamily = FontFamily,
                     LabelFormatter =  _ => "",
-                    Labels = _parties.Select(p => _names[p]).ToList(),
+                    Labels = _parties.Select(p => p.Name).ToList(),
                 }
             };
             lvc_overview.AxisY = new AxesCollection
@@ -136,8 +104,8 @@ namespace Bundestagswahl
             foreach (Party party in _parties)
                 lines[party] = new LineSeries
                 {
-                    Title = _names[party],
-                    Stroke = _colors[party],
+                    Title = party.Name,
+                    Stroke = party.Brush,
                     Fill = Brushes.Transparent,
                     FontFamily = FontFamily,
                     Values = new ChartValues<double>(opolls.Select(poll => poll[party])),
@@ -194,10 +162,10 @@ namespace Bundestagswahl
                     if (lvc_overview.Series.Count <= ind)
                         lvc_overview.Series.Add(new ColumnSeries
                         {
-                            Title = _names[party],
+                            Title = party.Name,
                             FontFamily = FontFamily,
                             Values = new ChartValues<double>(new[] { poll[party] }),
-                            Fill = _colors[party],
+                            Fill = party.Brush,
                             DataLabels = true,
                         });
                     else
@@ -209,21 +177,11 @@ namespace Bundestagswahl
                 double last = 0;
                 PollResult norm = poll.Normalized;
 
-                foreach (Party party in new []
-                {
-                    Party.LINKE,
-                    Party.PIRATEN,
-                    Party.SPD,
-                    Party.GRÜNE,
-                    Party.FDP,
-                    Party.CDU,
-                    Party.FW,
-                    Party.AFD,
-                })
+                foreach (Party party in Party.LeftToRight)
                 {
                     lvc_distr.Sections.Add(new AngularSection
                     {
-                        Fill = _colors[party],
+                        Fill = party.Brush,
                         FromValue = last,
                         ToValue = last + norm[party] * 100,
                     });
@@ -284,14 +242,14 @@ namespace Bundestagswahl
                         {
                             FromValue = last,
                             ToValue = last + p,
-                            Fill = _colors[party]
+                            Fill = party.Brush
                         });
                         last += p;
                     }
 
                     ctrl.Value = last;
                     perc.Content = $"{last:F1} %";
-                    desc.Content = string.Join(", ", parties);
+                    desc.Content = parties.StringJoin(", ");
 
                     if (last < 100)
                         ctrl.Sections.Add(new AngularSection
