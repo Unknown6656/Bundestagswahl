@@ -12,6 +12,7 @@ using System;
 
 using LiveCharts.Wpf;
 using LiveCharts;
+
 using Unknown6656.Common;
 
 namespace Bundestagswahl
@@ -43,7 +44,10 @@ namespace Bundestagswahl
                 (lvc_coa7, prc_coa7, lbl_coa7, new[]{ Party.CDU, Party.AFD }),
                 (lvc_coa8, prc_coa8, lbl_coa8, new[]{ Party.CDU, Party.FDP, Party.AFD }),
                 (lvc_coa9, prc_coa9, lbl_coa9, new[]{ Party.AFD, Party.FDP }),
-                (lvc_coa10, prc_coa10, lbl_coa10, new[]{ Party.GRÜNE, Party.LINKE }),
+                (lvc_coa10, prc_coa10, lbl_coa10, new[]{ Party.SPD, Party.GRÜNE }),
+                (lvc_coa11, prc_coa11, lbl_coa11, new[]{ Party.CDU, Party.FDP }),
+                (lvc_coa12, prc_coa12, lbl_coa12, new[]{ Party.CDU, Party.GRÜNE }),
+                (lvc_coa13, prc_coa13, lbl_coa13, new[]{ Party.GRÜNE, Party.LINKE }),
             };
 
             Loaded += MainWindow_Loaded;

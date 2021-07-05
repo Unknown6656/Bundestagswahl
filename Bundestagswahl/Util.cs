@@ -33,7 +33,6 @@ namespace Bundestagswahl
         public override string ToString() => Name;
     }
 
-
     public static class Util
     {
         public static async Task<HtmlDocument> GetHTML(string uri)
@@ -138,7 +137,7 @@ namespace Bundestagswahl
     public sealed class PollResult
     {
         public DateTime Date { get; }
-        
+
         internal IReadOnlyDictionary<Party, double> Results { get; }
 
         public double this[Party p] => Results.ContainsKey(p) ? Results[p] : 0;
