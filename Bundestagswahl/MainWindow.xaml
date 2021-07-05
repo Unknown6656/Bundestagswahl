@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:lvc="clr-namespace:LiveCharts.Wpf;assembly=LiveCharts.Wpf"
         mc:Ignorable="d" FontFamily="Consolas" ResizeMode="CanMinimize" WindowStartupLocation="CenterScreen"
-        Title="MainWindow" Height="900.951" Width="1948.387">
+        Title="MainWindow" Height="1040" Width="1948">
     <Grid>
         <GroupBox Header="Overview" HorizontalAlignment="Left" Height="405" Margin="10,10,0,0" VerticalAlignment="Top" Width="1914">
             <Grid>
@@ -37,9 +37,11 @@
                 <Label Content="Current party distribution" Margin="557,227,76,10" FontSize="16" HorizontalAlignment="Center"/>
             </Grid>
         </GroupBox>
-        <GroupBox Header="(Hypothetic) Coaltitions" HorizontalAlignment="Left" Height="440" Margin="898,420,-190,0" VerticalAlignment="Top" Width="1026">
+        <GroupBox Header="(Hypothetic) Coaltitions" HorizontalAlignment="Left" Height="630" Margin="898,420,-190,0" VerticalAlignment="Top" Width="1026">
             <Grid>
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="200"/>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="200"/>
                     <RowDefinition Height="*"/>
@@ -86,6 +88,21 @@
                 <lvc:AngularGauge Grid.Row="3" Grid.Column="8" x:Name="lvc_coa10" FromValue="0" ToValue="100" Value="50" LabelsStep="10" Width="200" Height="200" SectionsInnerRadius="0.5" Wedge="180" NeedleFill="Transparent" LabelsEffect="{x:Null}"/>
                 <Label Grid.Row="3" Grid.Column="8" x:Name="prc_coa10" HorizontalAlignment="Left" Margin="0,121,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="28" FontSize="16" FontWeight="Bold"/>
                 <Label Grid.Row="3" Grid.Column="8" x:Name="lbl_coa10" HorizontalAlignment="Left" Margin="0,154,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="46"/>
+                <lvc:AngularGauge Grid.Row="5" Grid.Column="0" x:Name="lvc_coa11" FromValue="0" ToValue="100" Value="50" LabelsStep="10" Width="200" Height="200" SectionsInnerRadius="0.5" Wedge="180" NeedleFill="Transparent" LabelsEffect="{x:Null}"/>
+                <Label Grid.Row="5" Grid.Column="0" x:Name="prc_coa11" HorizontalAlignment="Left" Margin="0,121,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="28" FontSize="16" FontWeight="Bold"/>
+                <Label Grid.Row="5" Grid.Column="0" x:Name="lbl_coa11" HorizontalAlignment="Left" Margin="0,154,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="46"/>
+                <lvc:AngularGauge Grid.Row="5" Grid.Column="2" x:Name="lvc_coa12" FromValue="0" ToValue="100" Value="50" LabelsStep="10" Width="200" Height="200" SectionsInnerRadius="0.5" Wedge="180" NeedleFill="Transparent" LabelsEffect="{x:Null}"/>
+                <Label Grid.Row="5" Grid.Column="2" x:Name="prc_coa12" HorizontalAlignment="Left" Margin="0,121,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="28" FontSize="16" FontWeight="Bold"/>
+                <Label Grid.Row="5" Grid.Column="2" x:Name="lbl_coa12" HorizontalAlignment="Left" Margin="0,154,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="46"/>
+                <lvc:AngularGauge Grid.Row="5" Grid.Column="4" x:Name="lvc_coa13" FromValue="0" ToValue="100" Value="50" LabelsStep="10" Width="200" Height="200" SectionsInnerRadius="0.5" Wedge="180" NeedleFill="Transparent" LabelsEffect="{x:Null}"/>
+                <Label Grid.Row="5" Grid.Column="4" x:Name="prc_coa13" HorizontalAlignment="Left" Margin="0,121,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="28" FontSize="16" FontWeight="Bold"/>
+                <Label Grid.Row="5" Grid.Column="4" x:Name="lbl_coa13" HorizontalAlignment="Left" Margin="0,154,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="46"/>
+                <lvc:AngularGauge Grid.Row="5" Grid.Column="6" x:Name="lvc_coa14" FromValue="0" ToValue="100" Value="50" LabelsStep="10" Width="200" Height="200" SectionsInnerRadius="0.5" Wedge="180" NeedleFill="Transparent" LabelsEffect="{x:Null}"/>
+                <Label Grid.Row="5" Grid.Column="6" x:Name="prc_coa14" HorizontalAlignment="Left" Margin="0,121,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="28" FontSize="16" FontWeight="Bold"/>
+                <Label Grid.Row="5" Grid.Column="6" x:Name="lbl_coa14" HorizontalAlignment="Left" Margin="0,154,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="46"/>
+                <lvc:AngularGauge Grid.Row="5" Grid.Column="8" x:Name="lvc_coa15" FromValue="0" ToValue="100" Value="50" LabelsStep="10" Width="200" Height="200" SectionsInnerRadius="0.5" Wedge="180" NeedleFill="Transparent" LabelsEffect="{x:Null}"/>
+                <Label Grid.Row="5" Grid.Column="8" x:Name="prc_coa15" HorizontalAlignment="Left" Margin="0,121,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="28" FontSize="16" FontWeight="Bold"/>
+                <Label Grid.Row="5" Grid.Column="8" x:Name="lbl_coa15" HorizontalAlignment="Left" Margin="0,154,0,0" VerticalAlignment="Top" Width="200" HorizontalContentAlignment="Center" Height="46"/>
             </Grid>
         </GroupBox>
     </Grid>
