@@ -11,6 +11,7 @@ using System;
 using HtmlAgilityPack;
 
 using Unknown6656.Generics;
+using System.Net.Http;
 
 namespace Bundestagswahl;
 
@@ -39,9 +40,9 @@ public static class Util
     public static async Task<HtmlDocument> GetHTML(string uri)
     {
         HtmlDocument doc = new();
+        using HttpClient client = new();
 
-        using (WebClient wc = new())
-            doc.LoadHtml(await wc.DownloadStringTaskAsync(uri));
+        doc.LoadHtml(await client.GetStringAsync(uri));
 
         return doc;
     }
@@ -116,6 +117,7 @@ public sealed class Coalition
     public double CoalitionPercentage { get; }
     public double OppositionPercentage { get; }
     private PollResult Result { get; }
+
     public double this[Party p] => Result[p];
 
 
