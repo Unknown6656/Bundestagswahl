@@ -1,4 +1,4 @@
-﻿#define FIXED_PARTY_ORDER
+#define FIXED_PARTY_ORDER
 
 using System.Windows.Controls;
 
@@ -13,7 +13,7 @@ using System;
 using LiveCharts.Wpf;
 using LiveCharts;
 
-using Unknown6656.Common;
+using Unknown6656.Generics;
 
 namespace Bundestagswahl
 {

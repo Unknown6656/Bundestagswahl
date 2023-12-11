@@ -1,4 +1,4 @@
-﻿using System.Windows.Media;
+using System.Windows.Media;
 
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -10,7 +10,7 @@ using System;
 
 using HtmlAgilityPack;
 
-using Unknown6656.Common;
+using Unknown6656.Generics;
 
 namespace Bundestagswahl
 {
