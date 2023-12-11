@@ -4,6 +4,7 @@
         <OutDir>$(ProjectDir)bin</OutDir>
         <TargetFramework>net8.0-windows</TargetFramework>
         <UseWPF>true</UseWPF>
+        <Nullable>enable</Nullable>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <LangVersion>preview</LangVersion>
         <ApplicationIcon>favicon.ico</ApplicationIcon>
