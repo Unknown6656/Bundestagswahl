@@ -20,13 +20,13 @@ namespace Bundestagswahl
     public partial class MainWindow
         : Window
     {
-        private static readonly Party[] _exclude = { Party.PIRATEN, Party.FW };
+        private static readonly Party[] _exclude = [Party.PIRATEN, Party.FW];
         private static readonly Party[] _parties = Party.All.Except(_exclude).ToArray();
 
         private static readonly MethodInfo _angulargauge_update = typeof(AngularGauge).GetMethod("Draw", BindingFlags.NonPublic | BindingFlags.Instance);
 
         private readonly (AngularGauge ctrl, Label perc, Label desc, Party[] parties)[] _coalitions;
-        private readonly Dictionary<int, PollResult> _polls = new();
+        private readonly Dictionary<int, PollResult> _polls = [];
 
 
         public MainWindow()
@@ -58,8 +58,8 @@ namespace Bundestagswahl
             update_polls_week(sender, e);
             sc_pollcnt_ValueChanged(sender, null);
 
-            lvc_overview.AxisX = new AxesCollection
-            {
+            lvc_overview.AxisX =
+            [
                 new Axis
                 {
                     Title = "Parties",
@@ -67,9 +67,9 @@ namespace Bundestagswahl
                     LabelFormatter =  _ => "",
                     Labels = _parties.Select(p => p.Name).ToList(),
                 }
-            };
-            lvc_overview.AxisY = new AxesCollection
-            {
+            ];
+            lvc_overview.AxisY =
+            [
                 new Axis
                 {
                     Title = "Percentage",
@@ -78,7 +78,7 @@ namespace Bundestagswahl
                     MaxValue = 0.4,
                     LabelFormatter = v => $"{v * 100:F1} %"
                 }
-            };
+            ];
             lvc_history.DataClick += (_, point) => cb_polls.SelectedIndex = cb_polls.Items.Count - 1 - (int)point.X;
         }
 
@@ -102,7 +102,7 @@ namespace Bundestagswahl
                 _polls[index] = poll;
             }
 
-            Dictionary<Party, LineSeries> lines = new Dictionary<Party, LineSeries>();
+            Dictionary<Party, LineSeries> lines = [];
             PollResult[] opolls = _polls.Values.OrderBy(poll => poll.Date).ToArray();
 
             foreach (Party party in _parties)
@@ -117,10 +117,9 @@ namespace Bundestagswahl
                     LineSmoothness = 0,
                 };
 
-            lvc_history.Series = new SeriesCollection();
-            lvc_history.Series.AddRange(lines.Values);
-            lvc_history.AxisX = new AxesCollection
-            {
+            lvc_history.Series = [.. lines.Values];
+            lvc_history.AxisX =
+            [
                 new Axis
                 {
                     Unit = 1,
@@ -128,9 +127,9 @@ namespace Bundestagswahl
                     FontFamily = FontFamily,
                     LabelFormatter = v => $"{opolls[(int)v].Date:yyyy-MM-dd}",
                 }
-            };
-            lvc_history.AxisY = new AxesCollection
-            {
+            ];
+            lvc_history.AxisY =
+            [
                 new Axis
                 {
                     MinValue = 0,
@@ -141,7 +140,7 @@ namespace Bundestagswahl
                     FontFamily = FontFamily,
                     LabelFormatter = v => Math.Round(v * 100).ToString()
                 }
-            };
+            ];
 
             cb_polls.Focus();
         }
@@ -156,7 +155,7 @@ namespace Bundestagswahl
             if (cb_polls.SelectedIndex != -1)
             {
                 if (lvc_overview.Series is null)
-                    lvc_overview.Series = new SeriesCollection();
+                    lvc_overview.Series = [];
 
                 PollResult poll = _polls[cb_polls.SelectedIndex];
                 int ind = 0;
@@ -214,7 +213,7 @@ namespace Bundestagswahl
                 update_coalitions(null);
             }
 
-            _angulargauge_update.Invoke(lvc_distr, new object[0]);
+            _angulargauge_update.Invoke(lvc_distr, []);
 
             cb_polls.Focus();
         }
@@ -229,13 +228,13 @@ namespace Bundestagswahl
                 desc.Content = "";
 
                 if (_poll is null)
-                    _angulargauge_update.Invoke(ctrl, new object[0]);
+                    _angulargauge_update.Invoke(ctrl, []);
             }
 
             if (_poll is PollResult poll)
                 foreach ((AngularGauge ctrl, Label perc, Label desc, Party[] parties) in  _coalitions)
                 {
-                    Coalition coa = new Coalition(poll, parties);
+                    Coalition coa = new(poll, parties);
                     double last = 0;
 
                     foreach (Party party in parties)
@@ -263,7 +262,7 @@ namespace Bundestagswahl
                             Fill = Brushes.White,
                         });
 
-                    _angulargauge_update.Invoke(ctrl, new object[0]);
+                    _angulargauge_update.Invoke(ctrl, []);
                 }
         }
 

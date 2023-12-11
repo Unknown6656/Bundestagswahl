@@ -26,8 +26,8 @@ namespace Bundestagswahl
         public static Party FW { get; } = new("fw", "Freie Wähler", Brushes.Blue);
         public static Party __OTHER__ { get; } = new("son", "Sonstige", Brushes.Gray);
 
-        public static Party[] All { get; } = { CDU, SPD, FDP, AFD, GRÜNE, LINKE, PIRATEN, FW, __OTHER__ };
-        public static Party[] LeftToRight { get; } = { LINKE, PIRATEN, SPD, GRÜNE, FDP, FW, CDU, AFD, };
+        public static Party[] All { get; } = [CDU, SPD, FDP, AFD, GRÜNE, LINKE, PIRATEN, FW, __OTHER__];
+        public static Party[] LeftToRight { get; } = [LINKE, PIRATEN, SPD, GRÜNE, FDP, FW, CDU, AFD,];
 
 
         public override string ToString() => Name;
@@ -37,9 +37,9 @@ namespace Bundestagswahl
     {
         public static async Task<HtmlDocument> GetHTML(string uri)
         {
-            HtmlDocument doc = new HtmlDocument();
+            HtmlDocument doc = new();
 
-            using (WebClient wc = new WebClient())
+            using (WebClient wc = new())
                 doc.LoadHtml(await wc.DownloadStringTaskAsync(uri));
 
             return doc;
@@ -51,7 +51,7 @@ namespace Bundestagswahl
         public static async Task<PollResult[]> FetchThisWeeksPollResultsAsync()
         {
             HtmlNodeCollection rows = await FetchTableRows("https://www.wahlrecht.de/umfragen/");
-            List<PollResult> polls = new List<PollResult>();
+            List<PollResult> polls = [];
             int index = 0;
 
             foreach (HtmlNode poll in rows.First(node => node.Id is "datum").SelectNodes(".//td/span[@class='li']"))
@@ -78,7 +78,7 @@ namespace Bundestagswahl
         public static async Task<PollResult[]> FetchThisLegislativePeriodsPollResultsAsync()
         {
             HtmlDocument doc = await GetHTML("https://www.wahlrecht.de/umfragen/insa.htm");
-            List<PollResult> polls = new List<PollResult>();
+            List<PollResult> polls = [];
 
             HtmlNodeCollection toprow = doc.DocumentNode.SelectNodes("//table[@class='wilko']/thead/tr/th");
             string[] header = toprow.ToArrayWhere(
@@ -162,7 +162,7 @@ namespace Bundestagswahl
         public PollResult(DateTime date, Dictionary<string, double> values)
             : this(date, new Func<Dictionary<Party, double>>(() =>
             {
-                Dictionary<Party, double> percentages = new();
+                Dictionary<Party, double> percentages = [];
 
                 foreach (string id in values.Keys)
                     if (Party.All.FirstOrDefault(p => p.Identifier == id) is Party p)
