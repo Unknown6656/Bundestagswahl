@@ -11,7 +11,7 @@
             <StackPanel Orientation="Vertical">
                 <StackPanel Orientation="Horizontal" Height="23">
                     <Label Content="Number of polls:" HorizontalAlignment="Left" Margin="5,0" Width="120"/>
-                    <ScrollBar x:Name="sc_pollcnt" HorizontalAlignment="Stretch" Margin="5,0" Orientation="Horizontal" HorizontalContentAlignment="Stretch" MinWidth="400" ValueChanged="sc_pollcnt_ValueChanged" Minimum="5" Maximum="500" LargeChange="5" Value="20" SmallChange="1"/>
+                    <ScrollBar x:Name="sc_pollcnt" HorizontalAlignment="Stretch" Margin="5,0" Orientation="Horizontal" HorizontalContentAlignment="Stretch" MinWidth="600" ValueChanged="sc_pollcnt_ValueChanged" Minimum="5" Maximum="3000" LargeChange="5" Value="20" SmallChange="1"/>
                     <Label x:Name="lbl_pollcnt" Content="20" HorizontalAlignment="Left" Margin="5,0" Width="44"/>
                     <Button x:Name="btn_fetchpolls" Content="Update all official polls" HorizontalAlignment="Left" Margin="5,0" Width="250" Click="update_polls_alltime"/>
                     <Button Content="Fetch the last 1..3 week's polls" HorizontalAlignment="Left" Margin="5,0" Width="250" Click="update_polls_week"/>

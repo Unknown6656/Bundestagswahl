@@ -5,7 +5,6 @@ using System.Collections.ObjectModel;
 using System.Threading.Tasks;
 using System.Globalization;
 using System.Linq;
-using System.Net;
 using System;
 
 using HtmlAgilityPack;
@@ -74,7 +73,7 @@ public static class Util
                 polls.Add(new PollResult(date, results));
             }
 
-        return polls.ToArray();
+        return [.. polls];
     }
 
     public static async Task<PollResult[]> FetchThisLegislativePeriodsPollResultsAsync()
@@ -106,7 +105,7 @@ public static class Util
                                                         .ToDictionary()));
         }
 
-        return polls.ToArray();
+        return [.. polls];
     }
 }
 

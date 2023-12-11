@@ -83,11 +83,11 @@ public partial class MainWindow
         lvc_history.DataClick += (_, point) => cb_polls.SelectedIndex = cb_polls.Items.Count - 1 - (int)point.X;
     }
 
-    private void update_polls_week(object sender, RoutedEventArgs e) => update_polls(Util.FetchThisWeeksPollResultsAsync);
+    private async void update_polls_week(object sender, RoutedEventArgs e) => await update_polls(Util.FetchThisWeeksPollResultsAsync);
 
-    private void update_polls_alltime(object sender, RoutedEventArgs e) => update_polls(Util.FetchThisLegislativePeriodsPollResultsAsync);
+    private async void update_polls_alltime(object sender, RoutedEventArgs e) => await update_polls(Util.FetchThisLegislativePeriodsPollResultsAsync);
 
-    private async void update_polls(Func<Task<PollResult[]>> fetcher)
+    private async Task update_polls(Func<Task<PollResult[]>> fetcher)
     {
         _polls.Clear();
 
@@ -96,7 +96,9 @@ public partial class MainWindow
 
         update_coalitions(null);
 
-        foreach (PollResult poll in (await fetcher()).OrderByDescending(poll => poll.Date).Take((int)sc_pollcnt.Value))
+        int maxcount = (int)sc_pollcnt.Value;
+
+        foreach (PollResult poll in (await fetcher()).OrderByDescending(poll => poll.Date).Take(maxcount))
         {
             int index = cb_polls.Items.Add(poll.Date.ToString("yyyy-MM-dd"));
 
@@ -104,7 +106,7 @@ public partial class MainWindow
         }
 
         Dictionary<Party, LineSeries> lines = [];
-        PollResult[] opolls = _polls.Values.OrderBy(poll => poll.Date).ToArray();
+        PollResult[] opolls = [.. _polls.Values.OrderBy(poll => poll.Date)];
 
         foreach (Party party in _parties)
             lines[party] = new LineSeries
@@ -114,7 +116,7 @@ public partial class MainWindow
                 Fill = Brushes.Transparent,
                 FontFamily = FontFamily,
                 Values = new ChartValues<double>(opolls.Select(poll => poll[party])),
-                DataLabels = true,
+                DataLabels = maxcount < 200,
                 LineSmoothness = 0,
             };
 
