@@ -4,18 +4,19 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Threading.Tasks;
 using System.Globalization;
+using System.Net.Http;
 using System.Linq;
 using System;
 
 using HtmlAgilityPack;
 
 using Unknown6656.Generics;
-using System.Net.Http;
 
 namespace Bundestagswahl;
 
 
-public record Party(string Identifier, string Name, Brush Brush)
+public sealed class Party(string identifier, string name, Brush brush)
+    : IEquatable<Party>
 {
     public static Party CDU { get; } = new("cdu", "CDU/CSU", Brushes.Black);
     public static Party SPD { get; } = new("spd", "SPD", Brushes.Red);
@@ -28,10 +29,93 @@ public record Party(string Identifier, string Name, Brush Brush)
     public static Party __OTHER__ { get; } = new("son", "Sonstige", Brushes.Gray);
 
     public static Party[] All { get; } = [CDU, SPD, FDP, AFD, GRÜNE, LINKE, PIRATEN, FW, __OTHER__];
-    public static Party[] LeftToRight { get; } = [LINKE, PIRATEN, SPD, GRÜNE, FDP, FW, CDU, AFD,];
+    public static Party[] LeftToRight { get; } = [LINKE, PIRATEN, SPD, GRÜNE, FDP, FW, CDU, AFD];
 
+
+    public string Name { get; } = name;
+
+    public Brush Brush { get; } = brush;
+
+
+    public override int GetHashCode() => identifier.GetHashCode();
+
+    public override bool Equals(object? obj) => obj is Party p && Equals(p);
+
+    public bool Equals(Party? other) => other?.GetHashCode() == GetHashCode();
 
     public override string ToString() => Name;
+}
+
+public sealed class Coalition
+{
+    public Party[] CoalitionParties { get; }
+    public Party[] OppositionParties { get; }
+    public double CoalitionPercentage { get; }
+    public double OppositionPercentage { get; }
+    private PollResult Result { get; }
+
+    public double this[Party p] => Result[p];
+
+
+    public Coalition(PollResult result, params Party[] parties)
+    {
+        Result = result.Normalized;
+        CoalitionParties = parties;
+        OppositionParties = new []{ Party.CDU, Party.SPD, Party.FDP, Party.AFD, Party.GRÜNE, Party.LINKE }.Except(parties).ToArray();
+        CoalitionPercentage = 0;
+        OppositionPercentage = 0;
+
+        foreach (Party party in Result.Results.Keys)
+            if (parties.Contains(party))
+                CoalitionPercentage += Result[party];
+            else
+                OppositionPercentage += Result[party];
+    }
+}
+
+public sealed class PollResult
+{
+    public DateTime Date { get; }
+
+    internal IReadOnlyDictionary<Party, double> Results { get; }
+
+    public double this[Party p] => Results.ContainsKey(p) ? Results[p] : 0;
+
+    public PollResult Normalized
+    {
+        get
+        {
+            double sum = 1 - this[Party.__OTHER__];
+
+            return new PollResult(Date, Results.ToDictionary(kvp => kvp.Key, kvp => kvp.Value / sum));
+        }
+    }
+
+
+    public PollResult(DateTime date, Dictionary<Party, double> values)
+    {
+        Date = date;
+        Results = new ReadOnlyDictionary<Party, double>(values);
+    }
+
+    public PollResult(DateTime date, Dictionary<string, double> values)
+        : this(date, new Func<Dictionary<Party, double>>(() =>
+        {
+            Dictionary<Party, double> percentages = [];
+
+            foreach (string id in values.Keys)
+                if (Party.All.FirstOrDefault(p => p.Identifier == id) is Party p)
+                    percentages[p] = values[id];
+
+            if (!percentages.ContainsKey(Party.__OTHER__))
+                percentages[Party.__OTHER__] = 1 - percentages.Values.Sum();
+
+            return percentages;
+        })())
+    {
+    }
+
+    public override string ToString() => Party.All.Select(p => $"{p}: {Math.Round(Results[p] * 100d, 1)} %").StringJoin(" | ");
 }
 
 public static class Util
@@ -107,76 +191,4 @@ public static class Util
 
         return [.. polls];
     }
-}
-
-public sealed class Coalition
-{
-    public Party[] CoalitionParties { get; }
-    public Party[] OppositionParties { get; }
-    public double CoalitionPercentage { get; }
-    public double OppositionPercentage { get; }
-    private PollResult Result { get; }
-
-    public double this[Party p] => Result[p];
-
-
-    public Coalition(PollResult result, params Party[] parties)
-    {
-        Result = result.Normalized;
-        CoalitionParties = parties;
-        OppositionParties = new []{ Party.CDU, Party.SPD, Party.FDP, Party.AFD, Party.GRÜNE, Party.LINKE }.Except(parties).ToArray();
-        CoalitionPercentage = 0;
-        OppositionPercentage = 0;
-
-        foreach (Party party in Result.Results.Keys)
-            if (parties.Contains(party))
-                CoalitionPercentage += Result[party];
-            else
-                OppositionPercentage += Result[party];
-    }
-}
-
-public sealed class PollResult
-{
-    public DateTime Date { get; }
-
-    internal IReadOnlyDictionary<Party, double> Results { get; }
-
-    public double this[Party p] => Results.ContainsKey(p) ? Results[p] : 0;
-
-    public PollResult Normalized
-    {
-        get
-        {
-            double sum = 1 - this[Party.__OTHER__];
-
-            return new PollResult(Date, Results.ToDictionary(kvp => kvp.Key, kvp => kvp.Value / sum));
-        }
-    }
-
-
-    public PollResult(DateTime date, Dictionary<Party, double> values)
-    {
-        Date = date;
-        Results = new ReadOnlyDictionary<Party, double>(values);
-    }
-
-    public PollResult(DateTime date, Dictionary<string, double> values)
-        : this(date, new Func<Dictionary<Party, double>>(() =>
-        {
-            Dictionary<Party, double> percentages = [];
-
-            foreach (string id in values.Keys)
-                if (Party.All.FirstOrDefault(p => p.Identifier == id) is Party p)
-                    percentages[p] = values[id];
-
-            if (!percentages.ContainsKey(Party.__OTHER__))
-                percentages[Party.__OTHER__] = 1 - percentages.Values.Sum();
-
-            return percentages;
-        })())
-    {
-    }
-
-    public override string ToString() => Party.All.Select(p => $"{p}: {Math.Round(Results[p] * 100d, 1)} %").StringJoin(" | ");
 }
