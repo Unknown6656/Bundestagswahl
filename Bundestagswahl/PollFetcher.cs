@@ -5,6 +5,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Globalization;
+using System.Diagnostics;
 using System.Net.Http;
 using System.Linq;
 using System.IO;
@@ -214,6 +215,8 @@ public sealed class PollResult
 
 public sealed class PollFetcher(FileInfo cachefile)
 {
+    public const long MAX_CACHE_LIFETIME_SECONDS = 3600 * 24 * 7; // keep cache for a maximum of one week.
+
     private const string BASE_URL = "https://www.wahlrecht.de/umfragen/";
     private static readonly string[] BASE_POLL_URLS = [
         "https://www.wahlrecht.de/umfragen/allensbach.htm",
@@ -227,10 +230,18 @@ public sealed class PollFetcher(FileInfo cachefile)
     ];
 
 
+    public void InvalidateCache()
+    {
+        if (cachefile.Exists)
+            cachefile.Delete();
+    }
+
     public async Task WriteCacheAsync(IEnumerable<PollResult> results)
     {
         await using FileStream fs = new(cachefile.FullName, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read);
         await using BinaryWriter wr = new(fs);
+
+        wr.Write(DateTime.UtcNow.Ticks);
 
         foreach (PollResult result in results.OrderBy(r => r.Date))
             result.Serialize(wr);
@@ -242,15 +253,29 @@ public sealed class PollFetcher(FileInfo cachefile)
 
     public PollResult[] ReadCache()
     {
-        using FileStream fs = new(cachefile.FullName, FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite);
-        using BinaryReader rd = new(fs);
+        try
+        {
+            using FileStream fs = new(cachefile.FullName, FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite);
+            using BinaryReader rd = new(fs);
 
-        List<PollResult> results = [];
+            DateTime created = new(rd.ReadInt64());
+            DateTime now = DateTime.UtcNow;
 
-        while (PollResult.TryDeserialize(rd) is PollResult result)
-            results.Add(result);
+            if (Math.Abs((now - created).Ticks) < MAX_CACHE_LIFETIME_SECONDS)
+            {
+                List<PollResult> results = [];
 
-        return [.. results.OrderBy(r => r.Date)];
+                while (PollResult.TryDeserialize(rd) is PollResult result)
+                    results.Add(result);
+
+                return [.. results.OrderBy(r => r.Date)];
+            }
+        }
+        catch when (!Debugger.IsAttached)
+        {
+        }
+
+        return [];
     }
 
     public async Task<PollResult[]> FetchAsync()
