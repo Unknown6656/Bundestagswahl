@@ -1,5 +1,6 @@
-using System.Windows.Media;
+﻿using System.Windows.Media;
 
+using System.Text.RegularExpressions;
 using System.Collections.ObjectModel;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -261,15 +262,16 @@ public sealed class PollFetcher(FileInfo cachefile)
 
     private const string BASE_URL = "https://www.wahlrecht.de/umfragen/";
     private static readonly string[] BASE_POLL_URLS = [
-        "https://www.wahlrecht.de/umfragen/allensbach.htm",
-        "https://www.wahlrecht.de/umfragen/emnid.htm",
-        "https://www.wahlrecht.de/umfragen/forsa.htm",
-        "https://www.wahlrecht.de/umfragen/politbarometer.htm",
-        "https://www.wahlrecht.de/umfragen/gms.htm",
-        "https://www.wahlrecht.de/umfragen/dimap.htm",
-        "https://www.wahlrecht.de/umfragen/insa.htm",
-        "https://www.wahlrecht.de/umfragen/yougov.htm",
+        $"{BASE_URL}allensbach.htm",
+        $"{BASE_URL}emnid.htm",
+        $"{BASE_URL}forsa.htm",
+        $"{BASE_URL}politbarometer.htm",
+        $"{BASE_URL}gms.htm",
+        $"{BASE_URL}dimap.htm",
+        $"{BASE_URL}insa.htm",
+        $"{BASE_URL}yougov.htm",
     ];
+    private static readonly Regex _regex_backpath = new(@"/[^/]*?/\.\.", RegexOptions.ECMAScript | RegexOptions.Compiled);
 
 
     public void InvalidateCache()
@@ -303,7 +305,7 @@ public sealed class PollFetcher(FileInfo cachefile)
             DateTime created = new(rd.ReadInt64());
             DateTime now = DateTime.UtcNow;
 
-            if (Math.Abs((now - created).Ticks) < MAX_CACHE_LIFETIME_SECONDS)
+            if (Math.Abs((now - created).TotalSeconds) < MAX_CACHE_LIFETIME_SECONDS)
             {
                 List<PollResult> results = [];
 
@@ -312,6 +314,9 @@ public sealed class PollFetcher(FileInfo cachefile)
 
                 return [.. results.OrderBy(r => r.Date)];
             }
+        }
+        catch (EndOfStreamException)
+        {
         }
         catch when (!Debugger.IsAttached)
         {
@@ -336,7 +341,7 @@ public sealed class PollFetcher(FileInfo cachefile)
 
     public static async Task<PollResult[]> FetchAllPollResultsAsync()
     {
-        Dictionary<string, HtmlDocument> documents = await FetchAllPollsAsync();
+        IDictionary<string, HtmlDocument> documents = await FetchAllPollsAsync();
         ConcurrentBag<PollResult> results = [];
 
         Parallel.ForEach(documents, kvp => FetchPollResults(kvp.Value, kvp.Key).Do(results.Add));
@@ -346,11 +351,6 @@ public sealed class PollFetcher(FileInfo cachefile)
 
     private static async Task<HtmlDocument> GetHTMLAsync(string uri)
     {
-        uri = uri.ToLowerInvariant();
-
-        if (!uri.StartsWith("http"))
-            uri = BASE_URL + uri;
-
         HtmlDocument doc = new();
         using HttpClient client = new();
 
@@ -359,58 +359,39 @@ public sealed class PollFetcher(FileInfo cachefile)
         return doc;
     }
 
-    private static string[] GetMorePollingLinks(HtmlDocument document, string selector = "//p[@class='navi']/a[@href]") =>
-        [.. document.DocumentNode.SelectNodes(selector).Select(node => node.GetAttributeValue("href", ""))];
+    private static string[] GetMorePollingLinks(HtmlDocument document, string selector = "//p[@class='navi'][1]/a[@href]") =>
+        document.DocumentNode.SelectNodes(selector) is { } nodes ? [.. nodes.Select(node => node.GetAttributeValue("href", ""))] : [];
 
-    // public static async Task<PollResult[]> FetchThisWeeksPollResultsAsync()
-    // {
-    //     HtmlNodeCollection rows = await FetchTableRows("https://www.wahlrecht.de/umfragen/");
-    //     List<PollResult> polls = [];
-    //     int index = 0;
-    // 
-    //     foreach (HtmlNode poll in rows.First(node => node.Id is "datum").SelectNodes(".//td/span[@class='li']"))
-    //         if (DateTime.TryParseExact(poll.InnerText, "dd.MM.yyyy", null, DateTimeStyles.None, out DateTime date))
-    //         {
-    //             ++index;
-    // 
-    //             Dictionary<string, double> results = rows.Where(node => node.Id != "datum" && !string.IsNullOrEmpty(node.Id))
-    //                                                      .ToDictionary(node => node.Id, node => double.TryParse(node.ChildNodes
-    //                                                                                                                 .Where(n => n.Name is "td")
-    //                                                                                                                 .Skip(index)
-    //                                                                                                                 .First()
-    //                                                                                                                 .InnerText
-    //                                                                                                                 .Replace("%", "")
-    //                                                                                                                 .Replace(',', '.')
-    //                                                                                                                 .Trim(), out double d) ? d / 100d : double.NaN);
-    // 
-    //             polls.Add(new PollResult(date, results));
-    //         }
-    // 
-    //     return [.. polls];
-    // }
-
-    private static async Task<Dictionary<string, HtmlDocument>> FetchAllPollsAsync()
+    private static async Task<IDictionary<string, HtmlDocument>> FetchAllPollsAsync()
     {
-        Dictionary<string, HtmlDocument> results = [];
-        HashSet<string> open = [];
+        ConcurrentDictionary<string, HtmlDocument> results = [];
+        ConcurrentHashSet<string> open = [];
 
-        foreach (string base_uri in BASE_POLL_URLS)
+        async Task fetch(string uri)
         {
-            HtmlDocument html = results[base_uri] = await GetHTMLAsync(base_uri);
+            HtmlDocument html = results[uri] = await GetHTMLAsync(uri);
 
-            GetMorePollingLinks(html).Do(open.Add);
+            foreach (string link in GetMorePollingLinks(html))
+                if (link.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                    open.Add(link);
+                else
+                {
+                    string sanitized_uri = uri[..(uri.TrimEnd('/').LastIndexOf('/') + 1)] + link;
+
+                    sanitized_uri = _regex_backpath.Replace(sanitized_uri, "");
+
+                    open.Add(sanitized_uri);
+                }
         }
+
+        await Parallel.ForEachAsync(BASE_POLL_URLS, async (base_uri, _) => await fetch(base_uri));
 
         while (open.Count > 0 && open.First() is string uri)
         {
             open.Remove(uri);
 
             if (!results.ContainsKey(uri))
-            {
-                HtmlDocument html = results[uri] = await GetHTMLAsync(uri);
-
-                GetMorePollingLinks(html).Do(open.Add);
-            }
+                await fetch(uri);
         }
 
         return results;
@@ -421,13 +402,11 @@ public sealed class PollFetcher(FileInfo cachefile)
         source_uri = source_uri.Replace(BASE_URL, "", StringComparison.OrdinalIgnoreCase);
 
         HtmlNodeCollection toprow = document.DocumentNode.SelectNodes("//table[@class='wilko']/thead/tr/th");
-        string[] header = toprow.ToArrayWhere(
-            node => node.Attributes.Contains("class") && node.Attributes["class"].Value == "part",
-            node => node.ChildNodes.First(child => child.Name == "a")
-                        .Attributes["href"]
-                        .Value
-                        .Replace("#fn-", "")
-        );
+        Dictionary<int, Party> header = [];
+
+        foreach ((var node, int index) in toprow.WithIndex())
+            if (node.GetAttributeValue("class", "") == "part")
+                header[index] = Party.TryGetParty(node.InnerText);
 
         foreach (HtmlNode row in document.DocumentNode.SelectNodes("//table[@class='wilko']/tbody/tr"))
         {
@@ -435,13 +414,9 @@ public sealed class PollFetcher(FileInfo cachefile)
 
             if (DateTime.TryParseExact(cells.FirstOrDefault(child => child.Attributes["class"]?.Value == "s")?.InnerText, "dd.MM.yyyy", null, DateTimeStyles.None, out DateTime date))
                 if (cells.Length >= toprow.Count)
-                    yield return new(date, source_uri, cells.Skip(2)
-                                                            .Take(header.Length)
-                                                            .Select(node => double.TryParse(node.InnerText
-                                                                                                .Replace(" %", "")
-                                                                                                .Replace(',', '.'), out double value) ? value / 100d : 0)
-                                                            .Zip(header, (v, h) => (s: h, d: v))
-                                                            .ToDictionary());
+                    yield return new(date, source_uri, header.ToDictionary(kvp => kvp.Value, kvp => double.TryParse(cells[kvp.Key].InnerText
+                                                                                                                                  .Replace(" %", "")
+                                                                                                                                  .Replace(',', '.'), out double value) ? value / 100d : 0));
         }
     }
 }
