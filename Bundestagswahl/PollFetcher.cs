@@ -1,4 +1,4 @@
-﻿using System.Windows.Media;
+using System.Windows.Media;
 
 using System.Collections.ObjectModel;
 using System.Collections.Concurrent;
@@ -70,6 +70,7 @@ public sealed class Party(PartyIdentifier identifier, string name, Brush brush)
     public static Party LINKE { get; } = new("lin", "Die Linke", Brushes.Purple);
     public static Party PIRATEN { get; } = new("pir", "Die Piraten", Brushes.DarkOrange);
     public static Party FW { get; } = new("fw", "Freie Wähler", Brushes.Blue);
+    public static Party RECHTE { get; } = new("rec", "NPD/REP/Rechte", Brushes.Brown);
     public static Party __OTHER__ { get; } = new("son", "Sonstige", Brushes.Gray);
 
     public static Party[] All { get; } = [CDU, SPD, FDP, AFD, GRÜNE, LINKE, PIRATEN, FW, __OTHER__];
@@ -90,6 +91,47 @@ public sealed class Party(PartyIdentifier identifier, string name, Brush brush)
     public bool Equals(Party? other) => Identifier.Equals(other?.Identifier);
 
     public override string ToString() => Name;
+
+    public static Party TryGetParty(string name)
+    {
+        name = new([.. name.ToLowerInvariant()
+                           .Replace('ä', 'a')
+                           .Replace('ö', 'o')
+                           .Replace('ü', 'u')
+                           .Replace('ß', 's')
+                           .Where(char.IsAsciiLetterOrDigit)]);
+
+        switch (name)
+        {
+            case "cdu" or "csu" or "cducsu" or "csucdu":
+                return CDU;
+            case "spd":
+                return SPD;
+            case "fdp":
+                return FDP;
+            case "grn" or "grune" or "diegrune" or "diegrunen":
+                return GRÜNE;
+            case "lin" or "lnk" or "linke" or "dielinke" or "linkepds" or "pds" or "pdsdielinke" or "pdslinke" or "dielinkepds":
+                return LINKE;
+            case "pir" or "piraten" or "diepiraten":
+                return PIRATEN;
+            case "fw" or "freienwahler" or "freiewahler" or "diefreienwahler" or "diefreiewahler" or "fwahler" or "diefwahler":
+                return FW;
+            case "afd" or "alternativefurdeutschland" or "alternativefurd" or "alternativefur" or "alternativefurd":
+                return AFD;
+            case "rechte" or "dierechte":
+            case "npd" or "nationaldemokraten":
+            case "rep" or "republikaner" or "dierepublikaner" or "dvu" or "repdvu" or "dvurep":
+                return RECHTE;
+            case "sonstige" or "andere":
+                return __OTHER__;
+            default:
+                Debug.Write($"Unknown party '{name}'.");
+
+                return __OTHER__; // TODO
+
+        }
+    }
 }
 
 public sealed class Coalition
