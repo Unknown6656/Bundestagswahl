@@ -21,34 +21,37 @@ namespace Bundestagswahl;
 public partial class MainWindow
     : Window
 {
+    private const string CACHE_FILE = "cache.bin";
+
     private static readonly Party[] _exclude = [Party.PIRATEN, Party.FW];
     private static readonly Party[] _parties = Party.All.Except(_exclude).ToArray();
-
-    private static readonly MethodInfo _angulargauge_update = typeof(AngularGauge).GetMethod("Draw", BindingFlags.NonPublic | BindingFlags.Instance);
+    private static readonly MethodInfo _angulargauge_update = typeof(AngularGauge).GetMethod("Draw", BindingFlags.NonPublic | BindingFlags.Instance)!;
 
     private readonly (AngularGauge ctrl, Label perc, Label desc, Party[] parties)[] _coalitions;
     private readonly Dictionary<int, PollResult> _polls = [];
+    private readonly PollFetcher _fetcher;
 
 
     public MainWindow()
     {
         InitializeComponent();
 
-        _coalitions = new[]
+        _fetcher = new(new(CACHE_FILE));
+        _coalitions = new (AngularGauge, Label, Label, Party[])[]
         {
-            (lvc_coa1, prc_coa1, lbl_coa1, new[]{ Party.CDU, Party.SPD }),
-            (lvc_coa2, prc_coa2, lbl_coa2, new[]{ Party.CDU, Party.SPD, Party.FDP }),
-            (lvc_coa3, prc_coa3, lbl_coa3, new[]{ Party.CDU, Party.SPD, Party.GRÜNE }),
-            (lvc_coa4, prc_coa4, lbl_coa4, new[]{ Party.CDU, Party.FDP, Party.GRÜNE }),
-            (lvc_coa5, prc_coa5, lbl_coa5, new[]{ Party.SPD, Party.LINKE, Party.GRÜNE }),
-            (lvc_coa6, prc_coa6, lbl_coa6, new[]{ Party.CDU, Party.SPD, Party.FDP, Party.GRÜNE }),
-            (lvc_coa7, prc_coa7, lbl_coa7, new[]{ Party.CDU, Party.AFD }),
-            (lvc_coa8, prc_coa8, lbl_coa8, new[]{ Party.CDU, Party.FDP, Party.AFD }),
-            (lvc_coa9, prc_coa9, lbl_coa9, new[]{ Party.AFD, Party.FDP }),
-            (lvc_coa10, prc_coa10, lbl_coa10, new[]{ Party.SPD, Party.GRÜNE }),
-            (lvc_coa11, prc_coa11, lbl_coa11, new[]{ Party.CDU, Party.FDP }),
-            (lvc_coa12, prc_coa12, lbl_coa12, new[]{ Party.CDU, Party.GRÜNE }),
-            (lvc_coa13, prc_coa13, lbl_coa13, new[]{ Party.GRÜNE, Party.LINKE }),
+            (lvc_coa1, prc_coa1, lbl_coa1, [Party.CDU, Party.SPD]),
+            (lvc_coa2, prc_coa2, lbl_coa2, [Party.CDU, Party.SPD, Party.FDP]),
+            (lvc_coa3, prc_coa3, lbl_coa3, [Party.CDU, Party.SPD, Party.GRÜNE]),
+            (lvc_coa4, prc_coa4, lbl_coa4, [Party.CDU, Party.FDP, Party.GRÜNE]),
+            (lvc_coa5, prc_coa5, lbl_coa5, [Party.SPD, Party.LINKE, Party.GRÜNE]),
+            (lvc_coa6, prc_coa6, lbl_coa6, [Party.CDU, Party.SPD, Party.FDP, Party.GRÜNE]),
+            (lvc_coa7, prc_coa7, lbl_coa7, [Party.CDU, Party.AFD]),
+            (lvc_coa8, prc_coa8, lbl_coa8, [Party.CDU, Party.FDP, Party.AFD]),
+            (lvc_coa9, prc_coa9, lbl_coa9, [Party.AFD, Party.FDP]),
+            (lvc_coa10, prc_coa10, lbl_coa10, [Party.SPD, Party.GRÜNE]),
+            (lvc_coa11, prc_coa11, lbl_coa11, [Party.CDU, Party.FDP]),
+            (lvc_coa12, prc_coa12, lbl_coa12, [Party.CDU, Party.GRÜNE]),
+            (lvc_coa13, prc_coa13, lbl_coa13, [Party.GRÜNE, Party.LINKE]),
         };
 
         Loaded += MainWindow_Loaded;
@@ -56,7 +59,7 @@ public partial class MainWindow
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
-        update_polls_week(sender, e);
+        update_polls(sender, e);
         sc_pollcnt_ValueChanged(sender, null);
 
         lvc_overview.AxisX =
@@ -83,11 +86,7 @@ public partial class MainWindow
         lvc_history.DataClick += (_, point) => cb_polls.SelectedIndex = cb_polls.Items.Count - 1 - (int)point.X;
     }
 
-    private async void update_polls_week(object sender, RoutedEventArgs e) => await update_polls(Util.FetchThisWeeksPollResultsAsync);
-
-    private async void update_polls_alltime(object sender, RoutedEventArgs e) => await update_polls(Util.FetchThisLegislativePeriodsPollResultsAsync);
-
-    private async Task update_polls(Func<Task<PollResult[]>> fetcher)
+    private async void update_polls(object sender, RoutedEventArgs e)
     {
         _polls.Clear();
 
@@ -98,7 +97,7 @@ public partial class MainWindow
 
         int maxcount = (int)sc_pollcnt.Value;
 
-        foreach (PollResult poll in (await fetcher()).OrderByDescending(poll => poll.Date).Take(maxcount))
+        foreach (PollResult poll in (await _fetcher.FetchAsync()).OrderByDescending(poll => poll.Date).Take(maxcount))
         {
             int index = cb_polls.Items.Add(poll.Date.ToString("yyyy-MM-dd"));
 
@@ -181,7 +180,7 @@ public partial class MainWindow
             }
 
             double last = 0;
-            PollResult norm = poll.Normalized;
+            //PollResult norm = poll.Normalized;
 
             foreach (Party party in Party.LeftToRight)
             {
@@ -189,10 +188,10 @@ public partial class MainWindow
                 {
                     Fill = party.Brush,
                     FromValue = last,
-                    ToValue = last + norm[party] * 100,
+                    ToValue = last + poll[party] * 100,
                 });
 
-                last += norm[party] * 100;
+                last += poll[party] * 100;
             }
             
             double[] vs = new double[_polls.Count];
@@ -269,7 +268,7 @@ public partial class MainWindow
             }
     }
 
-    private void sc_pollcnt_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    private void sc_pollcnt_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double>? e)
     {
         int cnt = (int)sc_pollcnt.Value;
 

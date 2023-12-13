@@ -37,7 +37,6 @@
         <Copyright>Copyright © 2018-$([System.DateTime]::Today.ToString(yyyy)), Unknown6656</Copyright>
         <PackageProjectUrl>https://github.com/Unknown6656/Bundestagswahl</PackageProjectUrl>
         <RepositoryUrl>https://github.com/Unknown6656/Bundestagswahl</RepositoryUrl>
-        <PackageIcon>unknown6656-logo-1024.png</PackageIcon>
         <PackageTags>unknown6656;Bundestag;Wahl;Bundestagswahl</PackageTags>
 
         <PackageId>Unknown6656.Bundestagswahl</PackageId>
