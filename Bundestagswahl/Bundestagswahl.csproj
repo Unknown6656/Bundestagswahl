@@ -54,7 +54,7 @@
         <PackageReference Include="HtmlAgilityPack" Version="1.11.60" />
         <PackageReference Include="LiveCharts" Version="0.9.7" />
         <PackageReference Include="LiveCharts.Wpf" Version="0.9.7" />
-        <PackageReference Include="Unknown6656.Core" Version="1.1.9" />
+        <PackageReference Include="Unknown6656.Core" Version="1.1.11" />
     </ItemGroup>
     <ItemGroup>
         <None Include="favicon.ico">
