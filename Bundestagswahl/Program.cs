@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Text;
 using System.Linq;
 using System;
@@ -38,9 +38,9 @@ public sealed class Renderer
 
     private static readonly Dictionary<RenderSize, (int MinWidth, int MinHeight)> _min_sizes = new()
     {
-        [RenderSize.Small] = (65, 51),
-        [RenderSize.Medium] = (80, 71),
-        [RenderSize.Large] = (120, 99),
+        [RenderSize.Small] = (155, 51),
+        [RenderSize.Medium] = (170, 71),
+        [RenderSize.Large] = (190, 99),
     };
 
     public static Party[][] Coalitions { get; } = [
