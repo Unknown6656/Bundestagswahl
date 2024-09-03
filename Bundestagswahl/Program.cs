@@ -358,37 +358,49 @@ public sealed class Renderer
                                         select $"{color}{kvp.Key}\e[0m"));
 
         foreach ((Party party, int index) in Party.All.WithIndex())
-            RenderPartyResult(left, top + 3 + index, 100, poll, party);
+            RenderPartyResult(left, top + 2 + index, width, poll, party);
 
-        RenderCoalition(left + 30, top + 10, 60, new Coalition(poll, Coalitions[0]));
-        RenderCoalition(left + 30, top + 11, 60, new Coalition(poll, Coalitions[1]));
-        RenderCoalition(left + 30, top + 12, 60, new Coalition(poll, Coalitions[2]));
-        RenderCoalition(left + 30, top + 13, 60, new Coalition(poll, Coalitions[3]));
-        RenderCoalition(left + 30, top + 14, 60, new Coalition(poll, Coalitions[4]));
-        RenderCoalition(left + 30, top + 15, 60, new Coalition(poll, Coalitions[5]));
-        RenderCoalition(left + 30, top + 16, 60, new Coalition(poll, Coalitions[6]));
-        RenderCoalition(left + 30, top + 17, 60, new Coalition(poll, Coalitions[7]));
-        RenderCoalition(left + 30, top + 18, 60, new Coalition(poll, Coalitions[8]));
-        RenderCoalition(left + 30, top + 19, 60, new Coalition(poll, Coalitions[9]));
-        RenderCoalition(left + 30, top + 20, 60, new Coalition(poll, Coalitions[10]));
-        RenderCoalition(left + 30, top + 21, 60, new Coalition(poll, Coalitions[11]));
-        RenderCoalition(left + 30, top + 22, 60, new Coalition(poll, Coalitions[12]));
-        RenderCoalition(left + 30, top + 23, 60, new Coalition(poll, Coalitions[13]));
-        RenderCoalition(left + 30, top + 24, 60, new Coalition(poll, Coalitions[14]));
-        RenderCoalition(left + 30, top + 25, 60, new Coalition(poll, Coalitions[15]));
+        Console.CursorTop += 2;
+        Console.CursorLeft = left;
+        Console.Write($"\e[0mKoalitionsmöglichkeiten:");
+
+        int y = Console.CursorTop;
+
+        foreach ((Party[] parties, int index) in Coalitions.WithIndex())
+            RenderCoalition(left + 1, y + index + 2, width - 50, new(poll, parties));
     }
 
     private void RenderPartyResult(int left, int top, int width, PollResult poll, Party party)
     {
+        width -= 20;
+
         Console.CursorTop = top;
         Console.CursorLeft = left;
-        Console.Write($"{party.VT100Color}{party.Identifier.ToString().ToUpper(),4} ");
+        Console.Write("\e[0m" + party.Identifier.ToString().ToUpper());
 
         double percentage = poll[party];
+        string status = percentage switch
+        {
+            > .666 => "\e[92m⬤⬤⬤",
+            >= .50 => "\e[90m◯\e[92m⬤⬤",
+            >= .33 => "\e[90m◯◯\e[92m⬤",
+            >= .05 => "\e[90m◯\e[33m⬤\e[90m◯",
+            _ => "\e[31m⬤\e[90m◯◯",
+        };
 
-        percentage = Math.Sin((DateTime.Now - DateTime.UnixEpoch).TotalSeconds)*.5+.5;
+        if (party == poll.StrongestParty)
+            status += "\e[94m⬤";
+        else
+            status += "\e[90m◯";
 
-        Console.Write($"\e[38;2;80;80;80m{new string('⣿', width)}\e[0m {percentage:P1}");
+        Console.CursorLeft = left + 5;
+        Console.Write($"\e[38;2;80;80;80m{new string('·', width)}\e[0m {percentage,5:P1}  {status}");
+
+        for (double d = 0; d <= 1; d += .125)
+        {
+            Console.CursorLeft = left + 5 + (int)Math.Round((width - 1) * d);
+            Console.Write($"\e[38;2;80;80;80m{(d is 0 or 1 or .5 ? '¦' : ':')}");
+        }
 
         int w = (int)(percentage * width);
         char end = " ⡀⡄⡆⡇⣇⣧⣷"[(int)(8 * (percentage * width - w))];
