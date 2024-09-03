@@ -6,6 +6,7 @@ using System;
 using Unknown6656.Controls.Console;
 using Unknown6656.Runtime;
 using Unknown6656.Generics;
+using System.Threading.Tasks;
 
 namespace Bundestagswahl;
 
@@ -79,6 +80,8 @@ public sealed class Renderer
     public const int TIME_PLOT_HEIGHT = 20;
 
 
+    public bool IsActive { get; private set; } = true;
+
     public RenderSize CurrentRenderSize
     {
         get => _render_size;
@@ -122,7 +125,12 @@ public sealed class Renderer
         GC.SuppressFinalize(this);
     }
 
-    private void Dispose(bool disposing) => ConsoleExtensions.RestoreConsoleState(_console_state);
+    private void Dispose(bool disposing)
+    {
+        IsActive = false;
+
+        ConsoleExtensions.RestoreConsoleState(_console_state);
+    }
 
     public void Render()
     {
@@ -142,15 +150,16 @@ public sealed class Renderer
         if (width < min_width || height < min_height)
             if (_render_size is RenderSize.Small)
             {
+                Console.Clear();
                 Console.WriteLine("\e[91;1m");
                 Console.WriteLine($"""
-                   ┌────────────────────────────────┐
-                   │ ⚠️ CONSOLE WINDOW TOO SMALL ⚠️ │
-                   ├────────────────────────────────┤
-                   │ Please resize this window to a │
-                   │ minimum size of {min_width,3} x {min_height,2}       │
-                   │ Current window size: {width,3} x {height,2}  │
-                   └────────────────────────────────┘
+                 ┌─────────────────────────────────────────────┐
+                 │    ⚠️ ⚠️ CONSOLE WINDOW TOO SMALL ⚠️ ⚠️     │
+                 ├─────────────────────────────────────────────┤
+                 │ Please resize this window to a minimum size │
+                 │ of {min_width,3} x {min_height,2}. Current window size: {width,3} x {height,2}  │
+                 │ You may alternatively reduce the font size. │
+                 └─────────────────────────────────────────────┘
                 """);
             }
             else
@@ -490,13 +499,39 @@ public static class Program
 {
     public static void Main()
     {
-        using var r = new Renderer()
+        using Renderer renderer = new()
         {
             CurrentRenderSize = RenderSize.Large
         };
+        using Task resize_watcher = Task.Factory.StartNew(async delegate
+        {
+            int width = Console.WindowWidth;
+            int height = Console.WindowHeight;
+            int timeout = 100;
+
+            do
+                if ((Console.WindowWidth, Console.WindowHeight) is (int nw, int nh) && (nw, nh) != (width, height))
+                {
+                    timeout = 100;
+                    (width, height) = (nw, nh);
+
+                    try
+                    {
+                        Console.Clear();
+                        renderer.Render();
+                    }
+                    catch
+                    {
+                        renderer.Render(); // do smth. if it fails the second time
+                    }
+                }
+                else
+                    await Task.Delay(timeout = Math.Max(500, timeout + 50));
+            while (renderer.IsActive);
+        });
 
         while (Console.ReadKey(true) is { Key: not ConsoleKey.Escape } key)
-            r.HandleInput(key);
+            renderer.HandleInput(key);
 
         Console.CursorTop = Console.WindowHeight - 1;
         Console.CursorLeft = Console.WindowWidth - 1;
@@ -504,3 +539,11 @@ public static class Program
         Console.ResetColor();
     }
 }
+
+
+// TODO :
+//  - 5% hürde
+//  - sperrminorität (1/3)
+//  - einf. mehrheit
+//  - abs. mehrheit
+//  - 2/3 mehrheit
