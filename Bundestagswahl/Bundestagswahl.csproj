@@ -1,6 +1,6 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
-        <TargetFramework>net8.0-windows</TargetFramework>
+        <TargetFramework>net8.0</TargetFramework>
 
         <LangVersion>preview</LangVersion>
         <EnablePreviewFeatures>True</EnablePreviewFeatures>
@@ -9,9 +9,8 @@
         <NullableContextOptions>enable</NullableContextOptions>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
-        <OutputType>WinExe</OutputType>
+        <OutputType>Exe</OutputType>
         <OutputPath>$(SolutionDir)bin</OutputPath>
-        <UseWPF>true</UseWPF>
 
         <ApplicationIcon>favicon.ico</ApplicationIcon>
 
@@ -51,10 +50,16 @@
         -->
     </PropertyGroup>
     <ItemGroup>
-        <PackageReference Include="HtmlAgilityPack" Version="1.11.60" />
+      <Compile Remove="_old_codebase.cs" />
+    </ItemGroup>
+    <ItemGroup>
+      <Content Include="_old_codebase.cs" />
+    </ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="HtmlAgilityPack" Version="1.11.65" />
         <PackageReference Include="LiveCharts" Version="0.9.7" />
         <PackageReference Include="LiveCharts.Wpf" Version="0.9.7" />
-        <PackageReference Include="Unknown6656.Core" Version="1.1.9" />
+        <PackageReference Include="Unknown6656.Runtime" Version="1.0.2" />
     </ItemGroup>
     <ItemGroup>
         <None Include="favicon.ico">

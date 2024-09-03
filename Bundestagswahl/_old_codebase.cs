@@ -10,9 +10,6 @@ using System.Windows;
 using System.Linq;
 using System;
 
-using LiveCharts.Wpf;
-using LiveCharts;
-
 using Unknown6656.Generics;
 
 namespace Bundestagswahl;
@@ -266,16 +263,5 @@ public partial class MainWindow
 
                 _angulargauge_update.Invoke(ctrl, []);
             }
-    }
-
-    private void sc_pollcnt_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double>? e)
-    {
-        int cnt = (int)sc_pollcnt.Value;
-
-        if (lbl_pollcnt != null)
-            lbl_pollcnt.Content = cnt.ToString();
-
-        if (btn_fetchpolls != null)
-            btn_fetchpolls.Content = $"Fetch the last {cnt} polls ...";
     }
 }
