@@ -1,4 +1,4 @@
-﻿using System.Windows.Media;
+using System.Windows.Media;
 
 using System.Text.RegularExpressions;
 using System.Collections.ObjectModel;
@@ -60,29 +60,30 @@ public unsafe struct PartyIdentifier
     public static implicit operator PartyIdentifier(string identifier) => new(identifier);
 }
 
-public sealed class Party(PartyIdentifier identifier, string name, Brush brush)
+public sealed class Party(PartyIdentifier identifier, string name, string color)
     : IEquatable<Party>
 {
-    public static Party CDU { get; } = new("cdu", "CDU/CSU", Brushes.Black);
-    public static Party SPD { get; } = new("spd", "SPD", Brushes.Red);
-    public static Party FDP { get; } = new("fdp", "FDP", Brushes.Gold);
-    public static Party AFD { get; } = new("afd", "AfD", Brushes.DodgerBlue);
-    public static Party GRÜNE { get; } = new("gru", "B.90/Die Grünen", Brushes.ForestGreen);
-    public static Party LINKE { get; } = new("lin", "Die Linke", Brushes.Purple);
-    public static Party PIRATEN { get; } = new("pir", "Die Piraten", Brushes.DarkOrange);
-    public static Party FW { get; } = new("fw", "Freie Wähler", Brushes.Blue);
-    public static Party RECHTE { get; } = new("rec", "NPD/REP/Rechte", Brushes.Brown);
-    public static Party __OTHER__ { get; } = new("son", "Sonstige", Brushes.Gray);
+    public static Party CDU { get; }       = new("cdu", "CDU/CSU",         "\e[38;2;36;0;77m");
+    public static Party SPD { get; }       = new("spd", "SPD",             "\e[38;2;255;40;40m");
+    public static Party FDP { get; }       = new("fdp", "FDP",             "\e[38;2;255;200;0m");
+    public static Party AFD { get; }       = new("afd", "AfD",             "\e[38;2;0;158;224m");
+    public static Party GRÜNE { get; }     = new("grü", "B.90/Die Grünen", "\e[38;2;60;155;0m");
+    public static Party LINKE { get; }     = new("lin", "Die Linke",       "\e[38;2;208;0;67m");
+    public static Party PIRATEN { get; }   = new("pir", "Die Piraten",     "\e[38;2;255;135;0m");
+    public static Party FW { get; }        = new("fw",  "Freie Wähler",    "\e[38;2;0;70;255m");
+    public static Party RECHTE { get; }    = new("rep", "NPD/REP/Rechte",  "\e[38;2;170;122;44m");
+    public static Party BSW { get; }       = new("bsw", "BSW",             "\e[38;2;111;0;60m");
+    public static Party __OTHER__ { get; } = new("son", "Sonstige",        "\e[38;2;126;176;165m");
 
-    public static Party[] All { get; } = [CDU, SPD, FDP, AFD, GRÜNE, LINKE, PIRATEN, FW, __OTHER__];
-    public static Party[] LeftToRight { get; } = [LINKE, PIRATEN, SPD, GRÜNE, FDP, FW, CDU, AFD];
+    public static Party[] All { get; } = [CDU, SPD, FDP, AFD, GRÜNE, LINKE, BSW, PIRATEN, FW, RECHTE, __OTHER__];
+    public static Party[] LeftToRight { get; } = [LINKE, BSW, PIRATEN, SPD, GRÜNE, FDP, FW, CDU, AFD, RECHTE];
 
 
     internal PartyIdentifier Identifier { get; } = identifier;
 
     public string Name { get; } = name;
 
-    public Brush Brush { get; } = brush;
+    public string VT100Color { get; } = color;
 
 
     public override int GetHashCode() => Identifier.GetHashCode();
