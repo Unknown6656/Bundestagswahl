@@ -61,7 +61,7 @@ public unsafe struct PartyIdentifier
 public sealed class Party(PartyIdentifier identifier, string name, string color)
     : IEquatable<Party>
 {
-    public static Party CDU { get; }       = new("cdu", "CDU/CSU",         "\e[38;2;36;0;77m");
+    public static Party CDU { get; }       = new("cdu", "CDU/CSU",         "\e[38;2;117;100;135m");
     public static Party SPD { get; }       = new("spd", "SPD",             "\e[38;2;255;40;40m");
     public static Party FDP { get; }       = new("fdp", "FDP",             "\e[38;2;255;200;0m");
     public static Party AFD { get; }       = new("afd", "AfD",             "\e[38;2;0;158;224m");
@@ -166,6 +166,8 @@ public sealed class PollResult
     public DateTime Date { get; }
 
     public string Pollster { get; }
+
+    public Party StrongestParty => Results.OrderByDescending(kvp => kvp.Value).FirstOrDefault().Key ?? Party.__OTHER__;
 
     internal IReadOnlyDictionary<Party, double> Results { get; }
 
