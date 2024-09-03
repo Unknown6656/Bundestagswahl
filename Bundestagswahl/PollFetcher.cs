@@ -1,6 +1,4 @@
-using System.Windows.Media;
-
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using System.Collections.ObjectModel;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -260,6 +258,8 @@ public sealed class PollResult
 public sealed class PollFetcher(FileInfo cachefile)
 {
     public const long MAX_CACHE_LIFETIME_SECONDS = 3600 * 24 * 7; // keep cache for a maximum of one week.
+
+    // TODO : do per state
 
     private const string BASE_URL = "https://www.wahlrecht.de/umfragen/";
     private static readonly string[] BASE_POLL_URLS = [
