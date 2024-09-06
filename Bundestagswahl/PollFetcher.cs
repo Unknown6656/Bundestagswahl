@@ -2,6 +2,7 @@
 using System.Collections.ObjectModel;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections;
 using System.Threading.Tasks;
 using System.Globalization;
 using System.Diagnostics;
@@ -13,12 +14,14 @@ using System;
 using HtmlAgilityPack;
 
 using Unknown6656.Generics;
+using Unknown6656.Common;
 
 namespace Bundestagswahl;
 
 
 public unsafe struct PartyIdentifier
     : IEquatable<PartyIdentifier>
+    , IEnumerable<char>
 {
     internal const int SIZE = 3;
 
@@ -52,6 +55,10 @@ public unsafe struct PartyIdentifier
     public override bool Equals(object? obj) => obj is PartyIdentifier i && Equals(i);
 
     public bool Equals(PartyIdentifier other) => other.GetHashCode() == GetHashCode();
+
+    public IEnumerator<char> GetEnumerator() => ToString().GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
     public static implicit operator string(PartyIdentifier identifier) => identifier.ToString();
 
@@ -123,6 +130,8 @@ public sealed class Party(PartyIdentifier identifier, string name, string color)
             case "npd" or "nationaldemokraten":
             case "rep" or "republikaner" or "dierepublikaner" or "dvu" or "repdvu" or "dvurep":
                 return RECHTE;
+            case "bsw" or "bswvg" or "bundnissahrawagenknecht":
+                return BSW;
             case "sonstige" or "andere":
                 return __OTHER__;
             default:
@@ -167,6 +176,12 @@ public sealed class PollResult
 
     public string Pollster { get; }
 
+    public string SourceURI { get; }
+
+    public State? State { get; }
+
+    public bool IsFederal => State is null;
+
     public Party StrongestParty => Results.OrderByDescending(kvp => kvp.Value).FirstOrDefault().Key ?? Party.__OTHER__;
 
     internal IReadOnlyDictionary<Party, double> Results { get; }
@@ -174,10 +189,12 @@ public sealed class PollResult
     public double this[Party p] => Results.ContainsKey(p) ? Results[p] : 0;
 
 
-    public PollResult(DateTime date, string pollster, Dictionary<Party, double> values)
+    public PollResult(DateTime date, State? state, string pollster, string source_uri, Dictionary<Party, double> values)
     {
         Date = date;
+        State = state;
         Pollster = pollster;
+        SourceURI = source_uri;
 
         if (!values.ContainsKey(Party.__OTHER__))
             values[Party.__OTHER__] = 1 - values.Values.Sum();
@@ -190,8 +207,8 @@ public sealed class PollResult
         Results = new ReadOnlyDictionary<Party, double>(values);
     }
 
-    public PollResult(DateTime date, string pollster, Dictionary<string, double> values)
-        : this(date, pollster, new Func<Dictionary<Party, double>>(() =>
+    public PollResult(DateTime date, State? state, string pollster, string source_uri, Dictionary<string, double> values)
+        : this(date, state, pollster, source_uri, new Func<Dictionary<Party, double>>(() =>
         {
             Dictionary<Party, double> percentages = [];
 
@@ -204,17 +221,25 @@ public sealed class PollResult
     {
     }
 
-    public override string ToString() => Party.All.Select(p => $"{p}: {Math.Round(Results[p] * 100d, 1)} %").StringJoin(" | ");
+    public override string ToString() =>
+        $"{Date:yyyy-MM-dd}, {State?.ToString() ?? "BUND"} {Results.Select(kvp => $"| {kvp.Key.Identifier}: {kvp.Value:P1}").StringConcat()} ({SourceURI})";
 
     internal void Serialize(BinaryWriter writer)
     {
         writer.Write(Date.Ticks);
+
+        if (State is null)
+            writer.Write((byte)0xff);
+        else
+            writer.Write((byte)State);
+
         writer.Write(Pollster);
+        writer.Write(SourceURI);
         writer.Write(Results.Count);
 
         foreach ((Party party, double result) in Results)
         {
-            char[] identifier = party.Identifier.ToString().ToCharArray();
+            char[] identifier = [..party.Identifier];
 
             writer.Write(identifier, 0, PartyIdentifier.SIZE);
             writer.Write(result);
@@ -226,7 +251,9 @@ public sealed class PollResult
         try
         {
             long ticks = reader.ReadInt64();
+            State? state = reader.ReadByte() is byte b and not 0xff ? (State)b : null;
             string pollster = reader.ReadString();
+            string source_uri = reader.ReadString();
             int count = reader.ReadInt32();
 
             Dictionary<Party, double> results = new()
@@ -238,7 +265,7 @@ public sealed class PollResult
             {
                 char[] identifier = new char[PartyIdentifier.SIZE];
 
-                reader.Read(identifier, 0, PartyIdentifier.SIZE);
+                reader.Read(identifier, 0, identifier.Length);
 
                 double result = reader.ReadDouble();
 
@@ -248,7 +275,7 @@ public sealed class PollResult
                     results[Party.__OTHER__] += result;
             }
 
-            return new(new(ticks), pollster, results);
+            return new(new(ticks), state, pollster, source_uri, results);
         }
         catch
         {
@@ -257,24 +284,48 @@ public sealed class PollResult
     }
 }
 
-public sealed class PollFetcher(FileInfo cachefile)
+// TODO : combined poll results?
+
+public sealed partial class PollFetcher(FileInfo cachefile)
 {
     public const long MAX_CACHE_LIFETIME_SECONDS = 3600 * 24 * 7; // keep cache for a maximum of one week.
 
     // TODO : do per state
 
-    private const string BASE_URL = "https://www.wahlrecht.de/umfragen/";
-    private static readonly string[] BASE_POLL_URLS = [
-        $"{BASE_URL}allensbach.htm",
-        $"{BASE_URL}emnid.htm",
-        $"{BASE_URL}forsa.htm",
-        $"{BASE_URL}politbarometer.htm",
-        $"{BASE_URL}gms.htm",
-        $"{BASE_URL}dimap.htm",
-        $"{BASE_URL}insa.htm",
-        $"{BASE_URL}yougov.htm",
+    private const string BASE_URL_FEDERAL = "https://www.wahlrecht.de/umfragen/";
+    private static readonly Dictionary<State, string> BASE_URL_STATES = new()
+    {
+        [State.BW] = $"{BASE_URL_FEDERAL}landtage/baden-wuerttemberg.htm",
+        [State.BY] = $"{BASE_URL_FEDERAL}landtage/bayern.htm",
+        [State.BE] = $"{BASE_URL_FEDERAL}landtage/berlin.htm",
+        [State.BB] = $"{BASE_URL_FEDERAL}landtage/brandenburg.htm",
+        [State.HB] = $"{BASE_URL_FEDERAL}landtage/bremen.htm",
+        [State.HH] = $"{BASE_URL_FEDERAL}landtage/hamburg.htm",
+        [State.HE] = $"{BASE_URL_FEDERAL}landtage/hessen.htm",
+        [State.MV] = $"{BASE_URL_FEDERAL}landtage/mecklenburg-vorpommern.htm",
+        [State.NI] = $"{BASE_URL_FEDERAL}landtage/niedersachsen.htm",
+        [State.NW] = $"{BASE_URL_FEDERAL}landtage/nrw.htm",
+        [State.RP] = $"{BASE_URL_FEDERAL}landtage/rheinland-pfalz.htm",
+        [State.SL] = $"{BASE_URL_FEDERAL}landtage/saarland.htm",
+        [State.SN] = $"{BASE_URL_FEDERAL}landtage/sachsen.htm",
+        [State.ST] = $"{BASE_URL_FEDERAL}landtage/sachsen-anhalt.htm",
+        [State.SH] = $"{BASE_URL_FEDERAL}landtage/schleswig-holstein.htm",
+        [State.TH] = $"{BASE_URL_FEDERAL}landtage/thueringen.htm",
+    };
+    private static readonly string[] BASE_URL_FEDERAL_POLLING = [
+        $"{BASE_URL_FEDERAL}allensbach.htm",
+        $"{BASE_URL_FEDERAL}emnid.htm",
+        $"{BASE_URL_FEDERAL}forsa.htm",
+        $"{BASE_URL_FEDERAL}politbarometer.htm",
+        $"{BASE_URL_FEDERAL}gms.htm",
+        $"{BASE_URL_FEDERAL}dimap.htm",
+        $"{BASE_URL_FEDERAL}insa.htm",
+        $"{BASE_URL_FEDERAL}yougov.htm",
+        $"{BASE_URL_FEDERAL}ipsos.htm",
     ];
-    private static readonly Regex _regex_backpath = new(@"/[^/]*?/\.\.", RegexOptions.ECMAScript | RegexOptions.Compiled);
+    private static readonly Regex _regex_backpath = GenerateRegexBackpath();
+    private static readonly Regex _regex_date = GenerateRegexDate();
+
 
 
     public void InvalidateCache()
@@ -319,9 +370,6 @@ public sealed class PollFetcher(FileInfo cachefile)
             }
         }
         catch (EndOfStreamException)
-        {
-        }
-        catch when (!Debugger.IsAttached)
         {
         }
 
@@ -387,7 +435,8 @@ public sealed class PollFetcher(FileInfo cachefile)
                 }
         }
 
-        await Parallel.ForEachAsync(BASE_POLL_URLS, async (base_uri, _) => await fetch(base_uri));
+        //await Parallel.ForEachAsync(BASE_URL_FEDERAL_POLLING.Concat(BASE_URL_STATES.Values), async (base_uri, _) => await fetch(base_uri));
+        await Parallel.ForEachAsync([BASE_URL_STATES[State.BW]], async (base_uri, _) => await fetch(base_uri));
 
         while (open.Count > 0 && open.First() is string uri)
         {
@@ -402,24 +451,119 @@ public sealed class PollFetcher(FileInfo cachefile)
 
     private static IEnumerable<PollResult> FetchPollResults(HtmlDocument document, string source_uri)
     {
-        source_uri = source_uri.Replace(BASE_URL, "", StringComparison.OrdinalIgnoreCase);
+        HtmlNodeCollection tables = document.DocumentNode.SelectNodes("//table[@class='wilko']");
+        State? state = null;
 
-        HtmlNodeCollection toprow = document.DocumentNode.SelectNodes("//table[@class='wilko']/thead/tr/th");
-        Dictionary<int, Party> header = [];
+        foreach ((State s, string uri) in BASE_URL_STATES)
+            if (uri == source_uri)
+            {
+                state = s;
 
-        foreach ((var node, int index) in toprow.WithIndex())
-            if (node.GetAttributeValue("class", "") == "part")
-                header[index] = Party.TryGetParty(node.InnerText);
+                break;
+            }
 
-        foreach (HtmlNode row in document.DocumentNode.SelectNodes("//table[@class='wilko']/tbody/tr"))
+        foreach (HtmlNode table in tables)
         {
-            HtmlNode[] cells = [.. row.ChildNodes.Where(child => child.Name == "td")];
+            HtmlNodeCollection toprow = table.SelectNodes("thead/tr/th");
+            Dictionary<int, Party> header = [];
+            int? participant_index = null;
+            int? pollster_index = null;
+            int? date_index = null;
 
-            if (DateTime.TryParseExact(cells.FirstOrDefault(child => child.Attributes["class"]?.Value == "s")?.InnerText, "dd.MM.yyyy", null, DateTimeStyles.None, out DateTime date))
-                if (cells.Length >= toprow.Count)
-                    yield return new(date, source_uri, header.ToDictionary(kvp => kvp.Value, kvp => double.TryParse(cells[kvp.Key].InnerText
-                                                                                                                                  .Replace(" %", "")
-                                                                                                                                  .Replace(',', '.'), out double value) ? value / 100d : 0));
+            foreach ((HtmlNode node, int index) in toprow.WithIndex())
+                if (node.GetAttributeValue("class", "") == "part")
+                    header[index] = Party.TryGetParty(node.InnerText);
+                else
+                {
+                    string header_text = new(node.InnerText.SelectWhere(char.IsAsciiLetter, char.ToLower).ToArray());
+
+                    if (header_text.Contains("institut"))
+                        pollster_index = index;
+                    else if (header_text.Contains("befragte") || header_text.Contains("teilnehmer"))
+                        participant_index = index;
+                    else if (header_text.Contains("datum"))
+                        date_index = index;
+                    else if (header_text.Contains("zeitraum") && date_index is null)
+                        date_index = index;
+                }
+
+            foreach (HtmlNode row in table.SelectNodes("tbody/tr"))
+            {
+                List<HtmlNode> cells = new(toprow.Count);
+
+                foreach (HtmlNode cell in row.ChildNodes)
+                    if (cell.Name == "td")
+                    {
+                        cells.Add(cell);
+
+                        if (int.TryParse(cell.GetAttributeValue("colspan", "0"), out int colspan) && colspan > 0)
+                            cells.AddRange(Enumerable.Repeat(cell, colspan - 1));
+                    }
+
+                DateTime? date = TryFindDate(cells[date_index ?? 0].InnerText);
+
+                foreach (HtmlNode cell in cells.Skip(1))
+                    if ((date ??= TryFindDate(cell.InnerText)) is { })
+                        break;
+
+                if (date is null)
+                    continue; // TODO : find better solution
+
+                string pollster = pollster_index is null ? source_uri : cells[pollster_index.Value];
+                int participants = participant_index is int i && int.TryParse(cells[i], out int p) ? p : 0; // TODO
+
+                yield return new(
+                    date.Value,
+                    state,
+                    pollster,
+                    source_uri,
+                    header.ToDictionary(kvp => kvp.Value, kvp => double.TryParse(cells[kvp.Key].Replace(" %", "")
+                                                                                               .Replace(',', '.'), out double value) ? value / 100d : 0)
+                );
+            }
         }
     }
+
+    public static string Normalize(string text) => text.ToLowerInvariant()
+        .Trim()
+        .Replace('•', '.')
+                   .Replace('–', '-') // en dash
+                   .Replace('—', '-') // em dash
+                   .Replace('‒', '-') // fig dash
+                   .Replace('―', '-');// hor. bar
+
+    public static DateTime? TryFindDate(string text)
+    {
+
+        foreach (Match match in _regex_date.Matches(text))
+        {
+            string format = match.Value.Contains('-') ? "yyyy-MM-dd" : "dd.MM.yyyy";
+
+            if (DateTime.TryParseExact(match.Value, format, null, DateTimeStyles.None, out DateTime date))
+                return date;
+        }
+
+        return null;
+    }
+
+    public static (DateTime Start, DateTime End)? TryFindDateRange(string text)
+    {
+        text = 
+
+        foreach (Match match in _regex_date.Matches(text))
+        {
+            string format = match.Value.Contains('-') ? "yyyy-MM-dd" : "dd.MM.yyyy";
+
+            if (DateTime.TryParseExact(match.Value, format, null, DateTimeStyles.None, out DateTime date))
+                return date;
+        }
+
+        return null;
+    }
+
+    [GeneratedRegex(@"/[^/]*?/\.\.", RegexOptions.Compiled | RegexOptions.ECMAScript)]
+    private static partial Regex GenerateRegexBackpath();
+
+    [GeneratedRegex(@"(\d{1,2}\.\d{1,2}\.\d{2}(\d{2})?|\d{4}-\d{2}-\d{2})", RegexOptions.Compiled | RegexOptions.ECMAScript)]
+    private static partial Regex GenerateRegexDate();
 }
