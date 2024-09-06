@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using System.Collections.ObjectModel;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -469,10 +469,11 @@ public sealed partial class PollFetcher(FileInfo cachefile)
             int? participant_index = null;
             int? pollster_index = null;
             int? date_index = null;
+            int? datespan_index = null;
 
             foreach ((HtmlNode node, int index) in toprow.WithIndex())
-                if (node.GetAttributeValue("class", "") == "part")
-                    header[index] = Party.TryGetParty(node.InnerText);
+                if (!node.GetAttributeValue("class", "").Contains("dat", StringComparison.OrdinalIgnoreCase) && Party.TryGetParty(node.InnerText) is Party party)
+                    header[index] = party;
                 else
                 {
                     string header_text = new(node.InnerText.SelectWhere(char.IsAsciiLetter, char.ToLower).ToArray());
@@ -483,8 +484,11 @@ public sealed partial class PollFetcher(FileInfo cachefile)
                         participant_index = index;
                     else if (header_text.Contains("datum"))
                         date_index = index;
-                    else if (header_text.Contains("zeitraum") && date_index is null)
-                        date_index = index;
+                    else if (header_text.Contains("zeitraum"))
+                    {
+                        date_index ??= index;
+                        datespan_index = index;
+                    }
                 }
 
             foreach (HtmlNode row in table.SelectNodes("tbody/tr"))
@@ -509,31 +513,47 @@ public sealed partial class PollFetcher(FileInfo cachefile)
                 if (date is null)
                     continue; // TODO : find better solution
 
-                string pollster = pollster_index is null ? source_uri : cells[pollster_index.Value];
-                int participants = participant_index is int i && int.TryParse(cells[i], out int p) ? p : 0; // TODO
+                string pollster = pollster_index is null ? source_uri : Normalize(cells[pollster_index.Value].InnerText);
+                int? participants = participant_index.HasValue && int.TryParse(cells[participant_index.Value].InnerText, out int i) ? i : null;
+                Dictionary<Party, double> votes = Party.All.ToDictionary(LINQ.id, _ => 0d);
 
-                yield return new(
-                    date.Value,
-                    state,
-                    pollster,
-                    source_uri,
-                    header.ToDictionary(kvp => kvp.Value, kvp => double.TryParse(cells[kvp.Key].Replace(" %", "")
-                                                                                               .Replace(',', '.'), out double value) ? value / 100d : 0)
-                );
+                foreach ((int index, Party party) in header)
+                    foreach (string text in cells[index].ChildNodes
+                                                        .SplitBy(node => node.Name == "br")
+                                                        .Select(chunk => Normalize(chunk.Select(node => node.InnerText)
+                                                                                        .StringJoin(" ")
+                                                                                        .Replace("%", "")
+                                                                                        .Replace(',', '.'))))
+                        if (double.TryParse(text, out double percentage))
+                            votes[party] += percentage * .01;
+                        else if (text.Split([' ', '\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries) is [string ident, string perc])
+                            if (Party.TryGetParty(ident) is { } p && double.TryParse(perc, out percentage))
+                                votes[p] += percentage * .01;
+
+                if (1 - votes.Values.Sum() is double diff and > 0)
+                    votes[Party.__OTHER__] += diff;
+
+                foreach (Party party in votes.Keys.ToArray())
+                    if (votes[party] <= 0)
+                        votes.Remove(party);
+
+                yield return new(date.Value, state, pollster, source_uri, votes);
             }
         }
     }
 
-    public static string Normalize(string text) => text.ToLowerInvariant()
-        .Trim()
-        .Replace('•', '.')
-                   .Replace('–', '-') // en dash
-                   .Replace('—', '-') // em dash
-                   .Replace('‒', '-') // fig dash
-                   .Replace('―', '-');// hor. bar
+    public static string Normalize(string text) => text.Trim()
+                                                       .ToLowerInvariant()
+                                                       .RemoveDiacritics()
+                                                       .Replace('•', '.')
+                                                       .Replace('–', '-') // en dash
+                                                       .Replace('—', '-') // em dash
+                                                       .Replace('‒', '-') // fig dash
+                                                       .Replace('―', '-');// hor. bar
 
     public static DateTime? TryFindDate(string text)
     {
+        text = Normalize(text);
 
         foreach (Match match in _regex_date.Matches(text))
         {
@@ -548,17 +568,19 @@ public sealed partial class PollFetcher(FileInfo cachefile)
 
     public static (DateTime Start, DateTime End)? TryFindDateRange(string text)
     {
-        text = 
+        text = Normalize(text);
 
-        foreach (Match match in _regex_date.Matches(text))
-        {
-            string format = match.Value.Contains('-') ? "yyyy-MM-dd" : "dd.MM.yyyy";
+        throw null;
 
-            if (DateTime.TryParseExact(match.Value, format, null, DateTimeStyles.None, out DateTime date))
-                return date;
-        }
+        //foreach (Match match in _regex_date.Matches(text))
+        //{
+        //    string format = match.Value.Contains('-') ? "yyyy-MM-dd" : "dd.MM.yyyy";
 
-        return null;
+        //    if (DateTime.TryParseExact(match.Value, format, null, DateTimeStyles.None, out DateTime date))
+        //        return date;
+        //}
+
+        //return null;
     }
 
     [GeneratedRegex(@"/[^/]*?/\.\.", RegexOptions.Compiled | RegexOptions.ECMAScript)]
