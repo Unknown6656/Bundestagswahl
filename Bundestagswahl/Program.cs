@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using System.Text;
 using System.Linq;
 using System;
@@ -6,7 +7,6 @@ using System;
 using Unknown6656.Controls.Console;
 using Unknown6656.Runtime;
 using Unknown6656.Generics;
-using System.Threading.Tasks;
 
 namespace Bundestagswahl;
 
@@ -33,6 +33,10 @@ public sealed class Renderer
 
     private static readonly StateCursorPosition[] _state_cursor_values = Enum.GetValues<StateCursorPosition>();
     private static readonly State[] _state_values = Enum.GetValues<State>();
+    private static readonly State[] _state_values_lfa = [State.BW, State.BY, State.HE, State.HH];
+    private static readonly State[] _state_values_pop_growth = [State.BY, State.BW, State.HE, State.RP, State.NW, State.NI, State.HH, State.SH, State.BE];
+    private static readonly State[] _state_values_pop = [State.NW, State.BY, State.BW]; // (NI)
+    private static readonly State[] _state_values_north_ger = [State.HB, State.HH, State.MV, State.NI, State.SH];
     private static readonly State[] _state_values_south_ger = [State.BW, State.BY, State.HE, State.RP, State.SL];
     private static readonly State[] _state_values_west_ger = [State.BW, State.BY, State.HB, State.HH, State.HE, State.NI, State.NW, State.RP, State.SL, State.SH];
 
@@ -264,61 +268,73 @@ public sealed class Renderer
             _state_values.ToDictionary(LINQ.id, s => _selected_states[s] ? coloring.States[s] : ("\e[90m", '·'))
         ), 2, 2);
 
-        Console.ForegroundColor = ConsoleColor.White;
-        Console.CursorTop = Map.Height + 5;
-        Console.CursorLeft = 3;
+        int sel_width = Map.Width / 8;
 
-        if (_selected_states.Values.All(LINQ.id))
-            Console.Write("\e[7m");
-
-        Console.Write($"[BUND]\e[27m  ");
-
-        if (_selected_states.Values.All(v => !v))
-            Console.Write("\e[7m");
-
-        Console.Write($"[KEIN]\e[27m  [INV.]  ");
-
-        foreach ((string region, IEnumerable<State> states) in new[]
+        foreach ((StateCursorPosition cursor, int index) in _state_cursor_values.WithIndex())
         {
-            ("WEST", _state_values_west_ger),
-            ("OST.", _state_values.Except(_state_values_west_ger)),
-            ("SÜD.", _state_values_south_ger),
-        })
-        {
-            if (_selected_states.All(kvp => states.Contains(kvp.Key) == kvp.Value))
+            int x = 3 + (index % sel_width) * 8;
+            int y = Map.Height + 5 + (index / sel_width) * 2;
+            State state = (State)cursor;
+
+            string txt = cursor switch
+            {
+                StateCursorPosition.Federal => "BUND",
+                StateCursorPosition.Deselect => "KEIN",
+                StateCursorPosition.Invert => "INV.",
+                StateCursorPosition.West => "WEST",
+                StateCursorPosition.East => "OST",
+                StateCursorPosition.South => "SÜD",
+                StateCursorPosition.North => "NORD",
+                StateCursorPosition.Population => "BEV.",
+                StateCursorPosition.PopulationGrowth => "BEV+",
+                StateCursorPosition.Economy => "LFA+",
+                _ => state.ToString(),
+            };
+
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.CursorTop = y;
+            Console.CursorLeft = x;
+
+            if (_state_values.Contains(state))
+                Console.Write(coloring.States[state].Color);
+
+            if (!_selected_states.TryGetValue(state, out bool active))
+                if (cursor is StateCursorPosition.Federal)
+                    active = _selected_states.Values.All(LINQ.id);
+                else if (cursor is StateCursorPosition.Deselect)
+                    active = _selected_states.Values.All(v => !v);
+                else if (cursor is StateCursorPosition.West)
+                    active = _selected_states.All(kvp => _state_values_west_ger.Contains(kvp.Key) == kvp.Value);
+                else if (cursor is StateCursorPosition.East)
+                    active = _selected_states.All(kvp => _state_values_west_ger.Contains(kvp.Key) != kvp.Value);
+                else if (cursor is StateCursorPosition.South)
+                    active = _selected_states.All(kvp => _state_values_south_ger.Contains(kvp.Key) == kvp.Value);
+                else if (cursor is StateCursorPosition.North)
+                    active = _selected_states.All(kvp => _state_values_north_ger.Contains(kvp.Key) == kvp.Value);
+                else if (cursor is StateCursorPosition.Population)
+                    active = _selected_states.All(kvp => _state_values_pop.Contains(kvp.Key) == kvp.Value);
+                else if (cursor is StateCursorPosition.PopulationGrowth)
+                    active = _selected_states.All(kvp => _state_values_pop_growth.Contains(kvp.Key) == kvp.Value);
+                else if (cursor is StateCursorPosition.Economy)
+                    active = _selected_states.All(kvp => _state_values_lfa.Contains(kvp.Key) == kvp.Value);
+                else
+                {
+                    // TODO
+                }
+
+            if (active)
                 Console.Write("\e[7m");
 
-            Console.Write($"[{region}]\e[27m  ");
+            Console.Write($"[{txt.PadRight(3),4}]\e[27m");
+
+            if (cursor == _state_cursor)
+            {
+                Console.CursorTop = y + 1;
+                Console.CursorLeft = x;
+                Console.ForegroundColor = ConsoleColor.Gray;
+                Console.Write("\e[6m°°°°°°\e[25m");
+            }
         }
-
-        foreach ((State state, int index) in Enum.GetValues<State>().WithIndex())
-        {
-            Console.CursorTop = Map.Height + 8 + (index / 6) * 3;
-            Console.CursorLeft = 3 + (index % 6) * 8;
-
-            bool selected = _selected_states[state];
-
-            if (selected)
-                Console.Write("\e[7m");
-
-            Console.Write($"{coloring.States[state].Color}[ {state} ]\e[27m");
-        }
-
-        if (_state_cursor <= StateCursorPosition.South)
-        {
-            Console.CursorTop = Map.Height + 6;
-            Console.CursorLeft = 3 + (int)_state_cursor * 8;
-        }
-        else
-        {
-            int index = _state_values.IndexOf((State)_state_cursor);
-
-            Console.CursorTop = Map.Height + 9 + (index / 6) * 3;
-            Console.CursorLeft = 3 + (index % 6) * 8;
-        }
-
-        Console.ForegroundColor = ConsoleColor.Gray;
-        Console.Write("\e[6m°°°°°°\e[25m");
     }
 
     private void RenderHistoricPlot(int width, int height)
@@ -459,26 +475,29 @@ public sealed class Renderer
             case KEY_STATE_UP: // TODO : implement
                 break;
             case KEY_STATE_ENTER:
-                if (_state_cursor is StateCursorPosition.Federal)
-                    foreach (State state in _state_values)
-                        _selected_states[state] = true;
-                else if (_state_cursor is StateCursorPosition.Deselect)
-                    foreach (State state in _state_values)
-                        _selected_states[state] = false;
-                else if (_state_cursor is StateCursorPosition.Invert)
+                if (_state_cursor is StateCursorPosition.Invert)
                     foreach (State state in _state_values)
                         _selected_states[state] ^= true;
-                else if (_state_cursor is StateCursorPosition.West)
-                    foreach (State state in _state_values)
-                        _selected_states[state] = _state_values_west_ger.Contains(state);
-                else if (_state_cursor is StateCursorPosition.East)
-                    foreach (State state in _state_values)
-                        _selected_states[state] = !_state_values_west_ger.Contains(state);
-                else if (_state_cursor is StateCursorPosition.South)
-                    foreach (State state in _state_values)
-                        _selected_states[state] = _state_values_south_ger.Contains(state);
-                else
+                else if (_state_values.Contains((State)_state_cursor))
                     _selected_states[(State)_state_cursor] ^= true;
+                else
+                {
+                    State[] target_states = _state_cursor switch
+                    {
+                        StateCursorPosition.Federal => _state_values,
+                        StateCursorPosition.Deselect => [],
+                        StateCursorPosition.West => _state_values_west_ger,
+                        StateCursorPosition.East => [.._state_values.Except(_state_values_west_ger)],
+                        StateCursorPosition.North => _state_values_north_ger,
+                        StateCursorPosition.South => _state_values_south_ger,
+                        StateCursorPosition.Population => _state_values_pop,
+                        StateCursorPosition.PopulationGrowth => _state_values_pop_growth,
+                        StateCursorPosition.Economy => _state_values_lfa,
+                    };
+
+                    foreach (State state in _state_values)
+                        _selected_states[state] = target_states.Contains(state);
+                }
 
                 break;
             default:
@@ -498,6 +517,10 @@ public enum StateCursorPosition
     West,
     East,
     South,
+    North,
+    Population,
+    PopulationGrowth,
+    Economy,
     BW = State.BW,
     BY = State.BY,
     BE = State.BE,
