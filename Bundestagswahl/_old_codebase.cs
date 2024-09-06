@@ -18,41 +18,9 @@ namespace Bundestagswahl;
 public partial class MainWindow
     : Window
 {
-    private const string CACHE_FILE = "cache.bin";
-
-    private static readonly Party[] _exclude = [Party.PIRATEN, Party.FW];
-    private static readonly Party[] _parties = Party.All.Except(_exclude).ToArray();
-    private static readonly MethodInfo _angulargauge_update = typeof(AngularGauge).GetMethod("Draw", BindingFlags.NonPublic | BindingFlags.Instance)!;
-
-    private readonly (AngularGauge ctrl, Label perc, Label desc, Party[] parties)[] _coalitions;
     private readonly Dictionary<int, PollResult> _polls = [];
     private readonly PollFetcher _fetcher;
 
-
-    public MainWindow()
-    {
-        InitializeComponent();
-
-        _fetcher = new(new(CACHE_FILE));
-        _coalitions = new (AngularGauge, Label, Label, Party[])[]
-        {
-            (lvc_coa1, prc_coa1, lbl_coa1, [Party.CDU, Party.SPD]),
-            (lvc_coa2, prc_coa2, lbl_coa2, [Party.CDU, Party.SPD, Party.FDP]),
-            (lvc_coa3, prc_coa3, lbl_coa3, [Party.CDU, Party.SPD, Party.GRÜNE]),
-            (lvc_coa4, prc_coa4, lbl_coa4, [Party.CDU, Party.FDP, Party.GRÜNE]),
-            (lvc_coa5, prc_coa5, lbl_coa5, [Party.SPD, Party.LINKE, Party.GRÜNE]),
-            (lvc_coa6, prc_coa6, lbl_coa6, [Party.CDU, Party.SPD, Party.FDP, Party.GRÜNE]),
-            (lvc_coa7, prc_coa7, lbl_coa7, [Party.CDU, Party.AFD]),
-            (lvc_coa8, prc_coa8, lbl_coa8, [Party.CDU, Party.FDP, Party.AFD]),
-            (lvc_coa9, prc_coa9, lbl_coa9, [Party.AFD, Party.FDP]),
-            (lvc_coa10, prc_coa10, lbl_coa10, [Party.SPD, Party.GRÜNE]),
-            (lvc_coa11, prc_coa11, lbl_coa11, [Party.CDU, Party.FDP]),
-            (lvc_coa12, prc_coa12, lbl_coa12, [Party.CDU, Party.GRÜNE]),
-            (lvc_coa13, prc_coa13, lbl_coa13, [Party.GRÜNE, Party.LINKE]),
-        };
-
-        Loaded += MainWindow_Loaded;
-    }
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
