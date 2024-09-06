@@ -4,7 +4,7 @@ using System.Text;
 using System.Linq;
 using System;
 
-using Unknown6656.Controls.Console;
+using Unknown6656.Runtime.Console;
 using Unknown6656.Runtime;
 using Unknown6656.Generics;
 
@@ -114,13 +114,10 @@ public sealed class Renderer
     {
         _console_state = ConsoleExtensions.SaveConsoleState();
 
-        if (OS.IsWindows)
-            Console.CursorVisible = false;
-
+        ConsoleExtensions.ClearAndResetAll();
         Console.OutputEncoding = Encoding.UTF8;
         Console.InputEncoding = Encoding.UTF8;
-        Console.Clear();
-        Console.Write("\e[3J");
+        ConsoleExtensions.CursorVisible = false;
 
         PollFetcher = new(new(CACHE_FILE));
     }
@@ -159,8 +156,8 @@ public sealed class Renderer
         if (width < min_width || height < min_height)
             if (_render_size is RenderSize.Small)
             {
-                Console.Clear();
-                Console.Write("\e[3J\e[91;1m");
+                ConsoleExtensions.FullClear();
+                Console.Write("\e[91;1m");
                 Console.WriteLine($"""
                  ┌─────────────────────────────────────────────┐
                  │    ⚠️ ⚠️ CONSOLE WINDOW TOO SMALL ⚠️ ⚠️     │
@@ -330,7 +327,7 @@ public sealed class Renderer
         RenderFrameLine(0, Map.Height + 3, Map.Width + 4, true);
         RenderFrameLine(Map.Width + 3, TIME_PLOT_HEIGHT, width - Map.Width - 3, true);
         RenderFrameLine(Map.Width + 35, 0, TIME_PLOT_HEIGHT + 1, false);
-        RenderFrameLine(Map.Width + 3, 0, Map.Width + 4, true);
+        //RenderFrameLine(Map.Width + 3, 0, Map.Width + 4, false);
 
         RenderTitle(4, 0, "ÜBERSICHTSKARTE DEUTSCHLAND", false);
         RenderTitle(4, Map.Height + 3, "BUNDESLÄNDER", _current_view is Views.States);
@@ -643,14 +640,12 @@ public static class Program
 
                     try
                     {
-                        Console.Clear();
-                        Console.Write("\e[3J");
+                        ConsoleExtensions.FullClear();
                         renderer.Render();
                     }
                     catch
                     {
-                        Console.Clear();
-                        Console.Write("\e[3J");
+                        ConsoleExtensions.FullClear();
                         renderer.Render(); // do smth. if it fails the second time
                     }
                 }
