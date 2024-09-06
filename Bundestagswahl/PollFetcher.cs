@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 using System.Collections.ObjectModel;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -99,7 +99,7 @@ public sealed class Party(PartyIdentifier identifier, string name, string color)
 
     public override string ToString() => Name;
 
-    public static Party TryGetParty(string name)
+    public static Party? TryGetParty(string name)
     {
         name = new([.. name.ToLowerInvariant()
                            .Replace('ä', 'a')
@@ -132,12 +132,12 @@ public sealed class Party(PartyIdentifier identifier, string name, string color)
                 return RECHTE;
             case "bsw" or "bswvg" or "bundnissahrawagenknecht":
                 return BSW;
-            case "sonstige" or "andere":
+            case "sonstig" or "sonstige" or "andere" or "sonst" or "rest":
                 return __OTHER__;
             default:
                 Debug.Write($"Unknown party '{name}'.");
 
-                return __OTHER__; // TODO
+                return null; // TODO
 
         }
     }
