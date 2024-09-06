@@ -18,12 +18,13 @@ public enum RenderSize
     Large = 2,
 }
 
-//public enum WindowRegions
-//{
-//    StateSelector,
-//    TimeSelector,
-//    SourceSelector,
-//}
+public enum Views
+{
+    States,
+    Source,
+    Historic,
+    Result,
+}
 
 public sealed class Renderer
     : IDisposable
@@ -39,7 +40,7 @@ public sealed class Renderer
 
     private static readonly Dictionary<RenderSize, (int MinWidth, int MinHeight)> _min_sizes = new()
     {
-        [RenderSize.Small] = (155, 51),
+        [RenderSize.Small] = (155, 55),
         [RenderSize.Medium] = (170, 71),
         [RenderSize.Large] = (190, 99),
     };
@@ -67,6 +68,7 @@ public sealed class Renderer
 
     private readonly Dictionary<State, bool> _selected_states = _state_values.ToDictionary(LINQ.id, s => true);
     private StateCursorPosition _state_cursor = StateCursorPosition.Federal;
+    private Views _current_view = Views.States;
     private RenderSize _render_size;
 
 
@@ -437,6 +439,13 @@ public sealed class Renderer
     {
         switch (key.Key)
         {
+            case KEY_VIEW_SWITCH:
+                int dir = key.Modifiers.HasFlag(ConsoleModifiers.Shift) ? -1 : 1;
+                int count = Enum.GetValues<Views>().Length;
+
+                _current_view = (Views)(((int)_current_view + dir + count) % count);
+
+                break;
             case KEY_STATE_NEXT:
                 _state_cursor = _state_cursor_values[(_state_cursor_values.IndexOf(_state_cursor) + 1) % _state_cursor_values.Length];
 
