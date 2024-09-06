@@ -69,15 +69,13 @@ public sealed class Renderer
     ];
 
     private readonly ConsoleState _console_state;
-
     private readonly Dictionary<State, bool> _selected_states = _state_values.ToDictionary(LINQ.id, s => true);
     private StateCursorPosition _state_cursor = StateCursorPosition.Federal;
     private Views _current_view = Views.States;
     private RenderSize _render_size;
 
-
-
-
+    public const string CACHE_FILE = "poll-cache.bin";
+    public const ConsoleKey KEY_VIEW_SWITCH = ConsoleKey.Tab;
     public const ConsoleKey KEY_STATE_ENTER = ConsoleKey.Enter;
     public const ConsoleKey KEY_STATE_NEXT = ConsoleKey.RightArrow;
     public const ConsoleKey KEY_STATE_PREV = ConsoleKey.LeftArrow;
@@ -87,6 +85,8 @@ public sealed class Renderer
 
 
     public bool IsActive { get; private set; } = true;
+
+    public PollFetcher PollFetcher { get; }
 
     public RenderSize CurrentRenderSize
     {
@@ -120,6 +120,9 @@ public sealed class Renderer
         Console.OutputEncoding = Encoding.UTF8;
         Console.InputEncoding = Encoding.UTF8;
         Console.Clear();
+        Console.Write("\e[3J");
+
+        PollFetcher = new(new(CACHE_FILE));
     }
 
     ~Renderer() => Dispose(false);
@@ -541,7 +544,7 @@ public enum StateCursorPosition
 
 public static class Program
 {
-    public static void Main()
+    public static async Task Main()
     {
         using Renderer renderer = new()
         {
@@ -562,10 +565,13 @@ public static class Program
                     try
                     {
                         Console.Clear();
+                        Console.Write("\e[3J");
                         renderer.Render();
                     }
                     catch
                     {
+                        Console.Clear();
+                        Console.Write("\e[3J");
                         renderer.Render(); // do smth. if it fails the second time
                     }
                 }
@@ -573,6 +579,9 @@ public static class Program
                     await Task.Delay(timeout = Math.Max(500, timeout + 50));
             while (renderer.IsActive);
         });
+
+        var results = await renderer.RenderFetchingPrompt(renderer.PollFetcher.FetchAsync);
+
 
         while (Console.ReadKey(true) is { Key: not ConsoleKey.Escape } key)
             renderer.HandleInput(key);
@@ -583,11 +592,3 @@ public static class Program
         Console.ResetColor();
     }
 }
-
-
-// TODO :
-//  - 5% hürde
-//  - sperrminorität (1/3)
-//  - einf. mehrheit
-//  - abs. mehrheit
-//  - 2/3 mehrheit
