@@ -160,7 +160,7 @@ public sealed class Renderer
             if (_render_size is RenderSize.Small)
             {
                 Console.Clear();
-                Console.WriteLine("\e[91;1m");
+                Console.Write("\e[3J\e[91;1m");
                 Console.WriteLine($"""
                  ┌─────────────────────────────────────────────┐
                  │    ⚠️ ⚠️ CONSOLE WINDOW TOO SMALL ⚠️ ⚠️     │
@@ -182,10 +182,7 @@ public sealed class Renderer
             RenderHistoricPlot(width, TIME_PLOT_HEIGHT);
 
 
-            PollResult pr = new(
-                DateTime.Now,
-                "lol",
-                new Dictionary<Party, double>()
+            PollResult pr = new(DateTime.Now, null, "", "", new Dictionary<Party, double>()
                 {
                     [Party.CDU] = .25,
                     [Party.SPD] = .15,
@@ -204,60 +201,142 @@ public sealed class Renderer
         }
     }
 
-    private void RenderFrame(int width, int height)
+    public async Task<T> RenderFetchingPrompt<T>(Func<Task<T>> task)
     {
-        string s = $"┌{new string('─', width - 2)}┐";
+        int width = Console.WindowWidth;
+        int height = Console.WindowHeight;
+
+        Console.Write("\e[0;36m");
+
+        for (int _y = 1; _y < height - 1; ++_y)
+        {
+            Console.CursorTop = _y;
+
+            for (int _x = _y % 2 + 1; _x < width - 1; _x += 2)
+            {
+                Console.CursorLeft = _x;
+                Console.Write('/');
+            }
+        }
+
+        string[] prompt = """
+                          ┌───────────────────────────────────────────────┐
+                          │                                               │
+                          │   xxx   Umfrageergebnisse werden geladen...   │
+                          │   xxx   Bitte warten.                         │
+                          │                                               │
+                          └───────────────────────────────────────────────┘
+                          """.Split('\n');
+        int x = (width - prompt.Max(s => s.Length)) / 2;
+        int y = (height - prompt.Length) / 2;
+
+        Console.Write("\e[0;96m");
+
+        for (int i = 0; i < prompt.Length; ++i)
+        {
+            Console.CursorLeft = x;
+            Console.CursorTop = y + i;
+            Console.Write(prompt[i]);
+        }
+
+        bool completed = false;
+        using Task spinner = Task.Factory.StartNew(async delegate
+        {
+            // ⡎⠉⢱
+            // ⢇⣀⡸
+            const string TL = "⡀⡄⡆⡎⠎⠊⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀";
+            const string TM = "⠀⠀⠀⠀⠁⠉⠉⠉⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀";
+            const string TR = "⠀⠀⠀⠀⠀⠀⠁⠑⠱⢱⢰⢠⢀⠀⠀⠀⠀⠀⠀⠀";
+            const string BR = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠘⠸⡸⡰⡠⡀⠀⠀⠀";
+            const string BM = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⣀⣀⡀⠀";
+            const string BL = "⠇⠃⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⢄⢆⢇";
+            int step = 0;
+
+            while (!completed)
+            {
+                step = (step + 1) % TL.Length;
+
+                Console.CursorLeft = x + 4;
+                Console.CursorTop = y + 2;
+                Console.Write(TL[step]);
+                Console.Write(TM[step]);
+                Console.Write(TR[step]);
+                Console.CursorLeft = x + 4;
+                Console.CursorTop = y + 3;
+                Console.Write(BL[step]);
+                Console.Write(BM[step]);
+                Console.Write(BR[step]);
+
+                await Task.Delay(50);
+            }
+        });
+
+        T result = await task();
+        completed = true;
+
+        await spinner;
+
+        Render();
+
+        return result;
+    }
+
+    private void RenderTitle(int x, int y, string title, bool active)
+    {
+        Console.CursorLeft = x;
+        Console.CursorTop = y;
+        Console.Write($"{(active ? "\e[1;91m" : "\e[96m")} {title} \e[22m");
+    }
+
+    private void RenderFrameLine(int x, int y, int size, bool horizontal)
+    {
+        (char start, char mid, char end) = horizontal ? ('├', '─', '┤') : ('┬', '│', '┴');
+        string line = start + new string(mid, size - 2) + end;
+
+        if (horizontal)
+        {
+            Console.CursorLeft = x;
+            Console.CursorTop = y;
+            Console.Write(line);
+        }
+        else
+            for (int i = 0; i < size; ++i)
+            {
+                Console.CursorLeft = x;
+                Console.CursorTop = y + i;
+                Console.Write(line[i]);
+            }
+    }
+
+    private void RenderOuterFrame(int width, int height)
+    {
+        string s = $"\e[0;97m┌{new string('─', width - 2)}┐";
 
         for (int i = 0; i < height - 2; ++i)
             s += $"\n│{new string(' ', width - 2)}│";
 
-        s += $"\n└{ new string('─', width - 2)}┘";
+        s += $"\n└{new string('─', width - 2)}┘";
 
         Console.CursorTop = 0;
         Console.CursorLeft = 0;
-        Console.ResetColor();
-        Console.ForegroundColor = ConsoleColor.White;
         Console.Write(s);
+    }
 
-        foreach ((char c, int y) in $"┬{new string('│', height - 2)}┴".WithIndex())
-        {
-            Console.CursorTop = y;
-            Console.CursorLeft = Map.Width + 3;
-            Console.Write(c);
-        }
+    private void RenderFrame(int width, int height)
+    {
+        RenderOuterFrame(width, height);
 
-        Console.CursorLeft = Map.Width + 3;
-        Console.CursorTop = TIME_PLOT_HEIGHT;
-        Console.Write($"├{new string('─', width - Map.Width - 5)}┤");
+        RenderFrameLine(Map.Width + 3, 0, height, false);
+        RenderFrameLine(0, Map.Height + 3, Map.Width + 4, true);
+        RenderFrameLine(Map.Width + 3, TIME_PLOT_HEIGHT, width - Map.Width - 3, true);
+        RenderFrameLine(Map.Width + 35, 0, TIME_PLOT_HEIGHT + 1, false);
+        RenderFrameLine(Map.Width + 3, 0, Map.Width + 4, true);
 
-        foreach ((char c, int y) in $"┬{new string('│', TIME_PLOT_HEIGHT - 1)}┴".WithIndex())
-        {
-            Console.CursorTop = y;
-            Console.CursorLeft = Map.Width + 35;
-            Console.Write(c);
-        }
-
-        Console.CursorLeft = 0;
-        Console.CursorTop = Map.Height + 3;
-        Console.Write($"├{new string('─', Map.Width + 2)}┤");
-
-        Console.CursorLeft = 4;
-        Console.ForegroundColor = ConsoleColor.Cyan;
-        Console.Write(" BUNDESLÄNDER ");
-
-        Console.CursorTop = 0;
-        Console.CursorLeft = 4;
-        Console.Write(" ÜBERSICHTSKARTE DEUTSCHLAND ");
-
-        Console.CursorLeft = Map.Width + 8;
-        Console.Write(" ZEITRAHMEN & QUELLE ");
-
-        Console.CursorLeft = Map.Width + 40;
-        Console.Write(" HISTORISCHER VERLAUF ");
-
-        Console.CursorTop = TIME_PLOT_HEIGHT;
-        Console.CursorLeft = Map.Width + 8;
-        Console.Write(" UMFRAGEERGEBNISSE ");
+        RenderTitle(4, 0, "ÜBERSICHTSKARTE DEUTSCHLAND", false);
+        RenderTitle(4, Map.Height + 3, "BUNDESLÄNDER", _current_view is Views.States);
+        RenderTitle(Map.Width + 8, 0, "ZEITRAHMEN & QUELLE", _current_view is Views.Source);
+        RenderTitle(Map.Width + 40, 0, "HISTORISCHER VERLAUF", _current_view is Views.Historic);
+        RenderTitle(Map.Width + 8, TIME_PLOT_HEIGHT, "UMFRAGEERGEBNISSE", _current_view is Views.Result);
     }
 
     private void RenderMap(int height)
