@@ -184,65 +184,38 @@ public sealed class Renderer
         {
             RenderFrame(width, height, clear);
             RenderMap(height);
-            RenderHistoricPlot(width, TIME_PLOT_HEIGHT);
 
+            (IPoll[] historic, IPoll? display) = FetchPolls();
 
-            PollResult pr = new(DateTime.Now, null, "", "", new Dictionary<Party, double>()
-                {
-                    [Party.CDU] = .25,
-                    [Party.SPD] = .15,
-                    [Party.FDP] = .10,
-                    [Party.AFD] = .20,
-                    [Party.GRÜNE] = .09,
-                    [Party.LINKE] = .05,
-                    [Party.PIRATEN] = .02,
-                    [Party.FW] = .03,
-                    [Party.RECHTE] = .01,
-                    [Party.BSW] = .10,
-                }
-            );
-
-            RenderResults(width, height, pr);
+            RenderHistoricPlot(width, TIME_PLOT_HEIGHT, historic);
+            RenderResults(width, height, display);
         }
     }
 
-    public async Task<T> RenderFetchingPrompt<T>(Func<Task<T>> task)
+    private (IPoll[] Historic, IPoll? Display) FetchPolls()
     {
-        int width = Console.WindowWidth;
-        int height = Console.WindowHeight;
+        List<State?> states = _selected_states.SelectWhere(kvp => kvp.Value, kvp => (State?)kvp.Key).ToList();
 
-        Console.Write("\e[0;36m");
+        if (_state_values.All(s => states.Contains(s)))
+            states.Add(null);
 
-        for (int _y = 1; _y < height - 1; ++_y)
-        {
-            Console.CursorTop = _y;
+        Poll[] filtered = Polls.Polls.Where(p => p.Date >= _start_date
+                                              && p.Date <= _end_date
+                                              && states.Contains(p.State)).ToArray();
+        MergedPoll newest = new([..states.Select(s => filtered.Where(p => p.State == s)
+                                                              .FirstOrDefault())
+                                         .Where(p => p is { })]);
 
-            for (int _x = _y % 2 + 1; _x < width - 1; _x += 2)
-            {
-                Console.CursorLeft = _x;
-                Console.Write('/');
-            }
-        }
+        return (filtered, newest);
+    }
 
-        string[] prompt = """
-                          ┌───────────────────────────────────────────────┐
-                          │                                               │
-                          │   xxx   Umfrageergebnisse werden geladen...   │
-                          │   xxx   Bitte warten.                         │
-                          │                                               │
-                          └───────────────────────────────────────────────┘
-                          """.Split('\n');
-        int x = (width - prompt.Max(s => s.Length)) / 2;
-        int y = (height - prompt.Length) / 2;
+    public async Task FetchPollsAsync() => Polls = await RenderFetchingPrompt(PollFetcher.FetchAsync);
 
-        Console.Write("\e[0;96m");
+    public async Task<PollResult> RenderFetchingPrompt(Func<Task<PollResult>> task)
+    {
+        (int x, int y) = RenderModalPrompt("Umfrageergebnisse werden geladen...\nBitte warten.", "\e[0;96m", "\e[0;36m");
 
-        for (int i = 0; i < prompt.Length; ++i)
-        {
-            Console.CursorLeft = x;
-            Console.CursorTop = y + i;
-            Console.Write(prompt[i]);
-        }
+        Console.Write("\e[96m");
 
         bool completed = false;
         using Task spinner = Task.Factory.StartNew(async delegate
@@ -276,24 +249,72 @@ public sealed class Renderer
             }
         });
 
-        T result = await task();
+        PollResult result = await task();
         completed = true;
 
         await spinner;
 
-        Render();
+        RenderModalPrompt($"{result.PollCount} Umfrageergebnisse wurden erfolgreich geladen.\nZum Starten bitte eine beliebige Taste drücken.", "\e[0;92m", "\e[0;32m");
+
+        Console.ReadKey(true);
+        Render(true);
 
         return result;
     }
 
-    private void RenderTitle(int x, int y, string title, bool active)
+    private (int x, int y) RenderModalPrompt(string content, string foreground, string background)
+    {
+        int width = Console.WindowWidth;
+        int height = Console.WindowHeight;
+
+        Console.Write(background);
+
+        for (int _y = 1; _y < height - 1; ++_y)
+        {
+            Console.CursorTop = _y;
+
+            for (int _x = _y % 2 + 1; _x < width - 1; _x += 2)
+            {
+                Console.CursorLeft = _x;
+                Console.Write('/');
+            }
+        }
+
+        string[] prompt = content.SplitIntoLines();
+        int prompt_width = prompt.Max(s => s.Length + 12);
+
+        if (prompt.Length == 1)
+            prompt = [prompt[0], ""];
+
+        prompt = [
+            $"┌{new string('─', prompt_width)}┐",
+            $"│{new string(' ', prompt_width)}│",
+            ..prompt.Select((line, i) => $"│   {i switch { 0 => "╱i╲", 1 => "‾‾‾", _ => "   " }}   {line.PadRight(prompt_width - 12)}   │"),
+            $"│{new string(' ', prompt_width)}│",
+            $"└{new string('─', prompt_width)}┘",
+        ];
+
+        int x = (width - prompt_width - 2) / 2;
+        int y = (height - prompt.Length) / 2;
+
+        for (int i = 0; i < prompt.Length; ++i)
+        {
+            Console.CursorLeft = x;
+            Console.CursorTop = y + i;
+            Console.Write(prompt[i]);
+        }
+
+        return (x, y);
+    }
+
+    private static void RenderTitle(int x, int y, string title, bool active)
     {
         Console.CursorLeft = x;
         Console.CursorTop = y;
         Console.Write($"{(active ? "\e[1;91m" : "\e[96m")} {title} \e[22m");
     }
 
-    private void RenderFrameLine(int x, int y, int size, bool horizontal)
+    private static void RenderFrameLine(int x, int y, int size, bool horizontal)
     {
         (char start, char mid, char end) = horizontal ? ('├', '─', '┤') : ('┬', '│', '┴');
         string line = start + new string(mid, size - 2) + end;
