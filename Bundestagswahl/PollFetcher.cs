@@ -145,35 +145,88 @@ public sealed class Party(PartyIdentifier identifier, string name, string color)
     }
 }
 
-public sealed class Coalition
+public interface IPoll
 {
+    public DateTime Date { get; }
+
+    public Party StrongestParty { get; }
+
+    public double this[Party party] { get; }
+}
+
+public sealed class Coalition
+    : IPoll
+{
+    private Dictionary<Party, double> _values = [];
+
+
     public Party[] CoalitionParties { get; }
+
     public Party[] OppositionParties { get; }
+
+    public Party? StrongestParty { get; }
+
     public double CoalitionPercentage { get; }
+
     public double OppositionPercentage { get; }
-    private PollResult Result { get; }
 
-    public double this[Party p] => Result[p];
+    public IPoll UnderlyingPoll { get; }
+
+    public DateTime Date => UnderlyingPoll.Date;
 
 
-    public Coalition(PollResult result, params Party[] parties)
+    public double this[Party party] => _values.TryGetValue(party, out double percentage) ? percentage : 0;
+
+
+    public Coalition(IPoll poll, params Party[] parties)
     {
-        Result = result;
-        CoalitionParties = parties;
-        OppositionParties = new []{ Party.CDU, Party.SPD, Party.FDP, Party.AFD, Party.GRÜNE, Party.LINKE }.Except(parties).ToArray();
+        UnderlyingPoll = poll;
+        CoalitionParties = parties.Where(p => poll[p] >= .05)
+                                  .OrderByDescending(p => poll[p])
+                                  .ToArray();
+        OppositionParties = Party.All.Except(parties).ToArrayWhere(p => poll[p] >= .05);
+        StrongestParty = CoalitionParties.MaxBy(p => poll[p]);
         CoalitionPercentage = 0;
-        OppositionPercentage = 0;
 
-        foreach (Party party in Result.Results.Keys)
-            if (parties.Contains(party))
-                CoalitionPercentage += Result[party];
-            else
-                OppositionPercentage += Result[party];
+        double sum = 0;
+
+        foreach (Party party in CoalitionParties)
+        {
+            sum += _values[party] = poll[party];
+            CoalitionPercentage += poll[party];
+        }
+
+        foreach (Party party in OppositionParties)
+            sum += _values[party] = poll[party];
+
+        foreach (Party party in CoalitionParties.Concat(OppositionParties))
+            _values[party] /= sum;
+
+        CoalitionPercentage /= sum;
+        OppositionPercentage = 1 - CoalitionPercentage;
+    }
+
+    public override bool Equals(object? obj) => obj is Coalition other &&
+                                                other.UnderlyingPoll == UnderlyingPoll &&
+                                                other._values.Keys.SetEquals(_values.Keys);
+
+    public override int GetHashCode()
+    {
+        int hc = UnderlyingPoll.GetHashCode();
+
+        foreach (Party party in _values.Keys)
+            hc = HashCode.Combine(hc, (string)party.Identifier);
+
+        return hc;
     }
 }
 
-public sealed class PollResult
+public sealed class Poll
+    : IPoll
 {
+    public static Poll Empty { get; } = new(DateTime.UnixEpoch, null, "<none>", "<none>", new Dictionary<Party, double>());
+
+
     public DateTime Date { get; }
 
     public string Pollster { get; }
@@ -191,7 +244,7 @@ public sealed class PollResult
     public double this[Party p] => Results.ContainsKey(p) ? Results[p] : 0;
 
 
-    public PollResult(DateTime date, State? state, string pollster, string source_uri, Dictionary<Party, double> values)
+    public Poll(DateTime date, State? state, string pollster, string source_uri, Dictionary<Party, double> values)
     {
         Date = date;
         State = state;
@@ -209,7 +262,7 @@ public sealed class PollResult
         Results = new ReadOnlyDictionary<Party, double>(values);
     }
 
-    public PollResult(DateTime date, State? state, string pollster, string source_uri, Dictionary<string, double> values)
+    public Poll(DateTime date, State? state, string pollster, string source_uri, Dictionary<string, double> values)
         : this(date, state, pollster, source_uri, new Func<Dictionary<Party, double>>(() =>
         {
             Dictionary<Party, double> percentages = [];
@@ -248,7 +301,7 @@ public sealed class PollResult
         }
     }
 
-    internal static PollResult? TryDeserialize(BinaryReader reader)
+    internal static Poll? TryDeserialize(BinaryReader reader)
     {
         try
         {
@@ -286,13 +339,164 @@ public sealed class PollResult
     }
 }
 
-// TODO : combined poll results?
+public sealed class MergedPoll
+    : IPoll
+{
+    private static readonly Dictionary<State, int> _population_per_state = new()
+    {
+        [State.BW] = 11_280_000,
+        [State.BY] = 13_369_000,
+        [State.BE] =  3_755_000,
+        [State.BB] =  2_573_000,
+        [State.HB] =    685_000,
+        [State.HH] =  1_892_000,
+        [State.HE] =  6_391_000,
+        [State.MV] =  1_628_000,
+        [State.NI] =  8_140_000,
+        [State.NW] = 18_139_000,
+        [State.RP] =  4_159_000,
+        [State.SL] =    993_000,
+        [State.SN] =  4_086_000,
+        [State.ST] =  2_187_000,
+        [State.SH] =  2_953_000,
+        [State.TH] =  2_127_000,
+    };
+    private static readonly int _population_total = _population_per_state.Values.Sum();
+
+    public Poll[] Polls { get; }
+
+    public State[] States { get; }
+
+    public Party StrongestParty { get; }
+
+    public DateTime EarliestPoll { get; }
+
+    public DateTime LatestPoll { get; }
+
+    DateTime IPoll.Date => LatestPoll;
+
+    internal IReadOnlyDictionary<Party, double> Results { get; }
+
+    public double this[Party p] => Results.ContainsKey(p) ? Results[p] : 0;
+
+
+    public MergedPoll(params Poll[] polls)
+    {
+        Polls = polls;
+
+        if (polls.Length > 0)
+        {
+            States = polls.SelectWhere(p => p.State.HasValue, p => p.State!.Value).Distinct().ToArray();
+            EarliestPoll = polls.Min(p => p.Date);
+            LatestPoll = polls.Max(p => p.Date);
+
+            Dictionary<Party, double> results = [];
+            double total = 0;
+
+            foreach (Party party in Party.All)
+            {
+                double sum = 0;
+                double pop = 0;
+
+                foreach (Poll poll in polls)
+                {
+                    int p = poll.State is State s ? _population_per_state[s] : _population_total;
+
+                    sum += poll[party] * p;
+                    pop += p;
+                }
+
+                sum = Math.Max(sum / pop, 0);
+                results[party] = sum;
+                total += sum;
+            }
+
+            foreach (Party party in Party.All)
+                results[party] /= total;
+
+            Results = new ReadOnlyDictionary<Party, double>(results);
+            StrongestParty = Results.OrderByDescending(kvp => kvp.Value).FirstOrDefault().Key ?? Party.__OTHER__;
+        }
+        else
+        {
+            States = [];
+            EarliestPoll =
+            LatestPoll = DateTime.UtcNow;
+            Results = Party.All.ToDictionary(LINQ.id, p => 0d);
+            StrongestParty = Party.__OTHER__;
+        }
+    }
+
+    public override string ToString() =>
+        $"{EarliestPoll:yyyy-MM-dd}-{LatestPoll:yyyy-MM-dd}, {States.Select(s => s.ToString() ?? "BUND").StringJoin(", ")} {Results.Select(kvp => $", {kvp.Key.Identifier}={kvp.Value:P1}").StringConcat()} ({Polls.Length} polls)";
+
+    public static implicit operator Poll[](MergedPoll poll) => poll.Polls;
+
+    public static implicit operator MergedPoll(Poll[] polls) => new(polls);
+}
+
+public sealed class PollResult(IEnumerable<Poll> polls)
+{
+    public static PollResult Empty { get; } = new([]);
+
+    public int PollCount => Polls.Length;
+
+    public Poll[] Polls { get; } = [.. polls.OrderByDescending(p => p.Date)];
+
+
+    public Poll? MostRecent() => Polls.FirstOrDefault();
+
+    public Poll[] MostRecent(int count) => Polls.Take(count).ToArray();
+
+    public Poll? MostRecent(State? state) => Polls.Where(p => p.State == state).FirstOrDefault();
+
+    public Poll[] MostRecent(State? state, int count) => Polls.Where(p => p.State == state).Take(count).ToArray();
+
+    public Poll[] In(State? state) => Polls.Where(p => p.State == state).ToArray();
+
+    public Poll[] During(DateTime earliest, DateTime latest) => Polls.Where(p => p.Date >= earliest && p.Date <= latest).ToArray();
+
+    public Poll[] During(DateTime earliest, DateTime latest, State state) => Polls.Where(p => p.Date >= earliest && p.Date <= latest && p.State == state).ToArray();
+
+    public string AsCSV()
+    {
+        Party[] parties = Party.All;
+        StringBuilder sb = new();
+
+        sb.AppendLine($"id,date,pollster,source,state,{parties.Select(p => p.Identifier).StringJoin(",")}");
+
+        for (int i = 0; i < Polls.Length; i++)
+        {
+            Poll poll = Polls[i];
+
+            sb.AppendLine($"{i},{poll.Date:yyyy-MM-dd},\"{poll.Pollster}\",\"{poll.SourceURI}\",{poll.State?.ToString() ?? "DE"},{parties.Select(p => poll[p].ToString("P1")).StringJoin(",")}");
+        }
+
+        return sb.ToString();
+    }
+
+    public string AsCSV(State? state)
+    {
+        Party[] parties = Party.All;
+        StringBuilder sb = new();
+
+        sb.AppendLine($"id,date,pollster,source,{parties.Select(p => p.Identifier).StringJoin(",")}");
+
+        for (int i = 0; i < Polls.Length; i++)
+        {
+            Poll poll = Polls[i];
+
+            if (poll.State == state)
+                sb.AppendLine($"{i},{poll.Date:yyyy-MM-dd},\"{poll.Pollster}\",\"{poll.SourceURI}\",{parties.Select(p => poll[p].ToString("P1")).StringJoin(",")}");
+        }
+
+        return sb.ToString();
+    }
+}
 
 public sealed partial class PollFetcher(FileInfo cachefile)
 {
     public const long MAX_CACHE_LIFETIME_SECONDS = 3600 * 24 * 7; // keep cache for a maximum of one week.
-
-    // TODO : do per state
 
     private const string BASE_URL_FEDERAL = "https://www.wahlrecht.de/umfragen/";
     private static readonly Dictionary<State, string> BASE_URL_STATES = new()
@@ -333,14 +537,14 @@ public sealed partial class PollFetcher(FileInfo cachefile)
             cachefile.Delete();
     }
 
-    public async Task WriteCacheAsync(IEnumerable<PollResult> results)
+    public async Task WriteCacheAsync(PollResult results)
     {
         await using FileStream fs = new(cachefile.FullName, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read);
         await using BinaryWriter wr = new(fs);
 
         wr.Write(DateTime.UtcNow.Ticks);
 
-        foreach (PollResult result in results.OrderBy(r => r.Date))
+        foreach (Poll result in results.Polls.OrderBy(r => r.Date))
             result.Serialize(wr);
 
         wr.Flush();
@@ -348,7 +552,7 @@ public sealed partial class PollFetcher(FileInfo cachefile)
         await fs.FlushAsync();
     }
 
-    public PollResult[] ReadCache()
+    public PollResult ReadCache()
     {
         try
         {
@@ -360,28 +564,28 @@ public sealed partial class PollFetcher(FileInfo cachefile)
 
             if (Math.Abs((now - created).TotalSeconds) < MAX_CACHE_LIFETIME_SECONDS)
             {
-                List<PollResult> results = [];
+                List<Poll> results = [];
 
-                while (PollResult.TryDeserialize(rd) is PollResult result)
+                while (Poll.TryDeserialize(rd) is Poll result)
                     results.Add(result);
 
-                return [.. results.OrderBy(r => r.Date)];
+                return new(results.OrderBy(r => r.Date));
             }
         }
         catch (EndOfStreamException)
         {
         }
 
-        return [];
+        return PollResult.Empty;
     }
 
-    public async Task<PollResult[]> FetchAsync()
+    public async Task<PollResult> FetchAsync()
     {
-        PollResult[] results = ReadCache();
+        PollResult results = ReadCache();
 
-        if (results.Length == 0)
+        if (results.PollCount == 0)
         {
-            results = await FetchAllPollResultsAsync();
+            results = await FetchAllPollsAsync();
 
             await WriteCacheAsync(results);
         }
