@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Text;
 using System.Linq;
@@ -507,52 +507,93 @@ public sealed class Renderer
 
         Console.CursorTop += 3;
         Console.CursorLeft = left;
-        Console.Write($"\e[0mPol. Kompass:");
-        Console.CursorLeft = left + 35;
-        Console.Write($"Koalitionsmöglichkeiten:");
+        Console.Write("\e[0mPolitischer Kompass:");
 
         int y = Console.CursorTop;
-        int spc = y - top + 1;
+        int vertical_space = height + top - y - 5;
 
-        RenderCompass(left, y + 2, Math.Min(20, spc - 1), poll);
+        (int coalition_x, _) = RenderCompass(left, y + 2, vertical_space - 4, poll);
+
+        coalition_x += 6;
+
+        Console.CursorTop = y;
+        Console.CursorLeft = left + coalition_x;
+        Console.Write("\e[0mKoalitionsmöglichkeiten:");
 
         Coalition[] coalitions = poll is { } ? Coalitions.Select(parties => new Coalition(poll, parties))
                                                          .Where(c => c.CoalitionParties.Length > 1) // filter coalitions where all other parties are < 5%
                                                          .Distinct()
                                                          .OrderByDescending(c => c.CoalitionPercentage)
-                                                         .Take(spc)
+                                                         .Take(vertical_space)
                                                          .ToArray() : [];
 
         foreach ((Coalition coalition, int index) in coalitions.WithIndex())
-            RenderCoalition(left + 35, y + index + 2, width - 40, poll is { } ? coalition : null);
+            RenderCoalition(left + coalition_x, y + index + 2, width - coalition_x - 5, poll is { } ? coalition : null);
 
-        for (int i = coalitions.Length; i < spc; ++i)
+        for (int i = coalitions.Length; i < vertical_space; ++i)
         {
             Console.CursorTop = y + i + 2;
-            Console.CursorLeft = left + 35;
-            Console.Write(new string(' ', width - 40));
+            Console.CursorLeft = left + coalition_x;
+            Console.Write(new string(' ', width - coalition_x - 5));
         }
     }
 
-    private static void RenderCompass(int left, int top, int height, IPoll? poll)
+    private static (int width, int height) RenderCompass(int left, int top, int height, IPoll? poll)
     {
-        if (height % 2 == 0)
+        int width = height * 2;
+
+        while (height % 2 != 1 || ((height - 2) / 2) % 2 != 1)
             ++height;
 
-        int width = (int)(height * 1.8);
-
-        if (width % 2 == 0)
+        while (width % 3 != 1 || ((width - 2) / 3) % 2 != 1)
             ++width;
 
-        RenderBox(left, top, width, height, false, "\e[38;2;80;80;80m");
+        RenderBox(left, top, width, height, false, "\e[90m");
 
-        for (int y = 1; y < height - 1; y += 2)
-            for (int x = 1; x < width - 1; x += 2)
+        Console.Write("\e[38;2;80;80;80m");
+
+        for (int y = 1; y < height - 1; ++y)
+            for (int x = 1; x < width - 1; ++x)
             {
                 Console.CursorLeft = left + x;
                 Console.CursorTop = top + y;
-                Console.Write('-');
+                Console.Write(y == height / 2 || x == width / 2 ? "\e[90m" : "\e[38;2;80;80;80m");
+                Console.Write((x % 3, y % 2) switch
+                {
+                    (0, 0) => '+',
+                    (_, 0) => '-',
+                    (0, 1) => '¦',
+                    _ => ' ',
+                });
             }
+
+        void render_compas_dot(double lr, double al, string dot)
+        {
+            int x = (int)Math.Round((double.Clamp(lr, -1, 1) + 1) * .5 * (width - 3));
+            int y = (int)Math.Round((double.Clamp(al, -1, 1) + 1) * .5 * (height - 3));
+
+            Console.CursorLeft = left + x + 1;
+            Console.CursorTop = top + y + 1;
+            Console.Write(dot);
+        }
+
+        double lr_axis = 0;
+        double al_axis = 0;
+
+        if (poll is { })
+            foreach (var party in Party.All)
+            {
+                double perc = poll[party];
+
+                lr_axis += perc * party.EconomicLeftRightAxis;
+                al_axis += perc * party.AuthoritarianLibertarianAxis;
+
+                render_compas_dot(party.EconomicLeftRightAxis, party.AuthoritarianLibertarianAxis, party.VT100Color + (width < 30 ? "·" : "◯"));
+            }
+
+        render_compas_dot(lr_axis, al_axis, "\e[97m⬤");
+
+        return (width, height);
     }
 
     private static void RenderPartyResult(int left, int top, int width, IPoll? poll, Party party)
