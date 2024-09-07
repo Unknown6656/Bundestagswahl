@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using System.Collections.ObjectModel;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -70,7 +70,8 @@ public unsafe struct PartyIdentifier
 public sealed class Party(PartyIdentifier identifier, string name, string color)
     : IEquatable<Party>
 {
-    public static Party CDU { get; }       = new("cdu", "CDU/CSU",         "\e[38;2;117;100;135m");
+    public static Party CDU { get; }       = new("cdu", "CDU/CSU",         "\e[38;2;217;200;235m");
+    //public static Party CDU { get; }       = new("cdu", "CDU/CSU",         "\e[38;2;117;100;135m");
     public static Party SPD { get; }       = new("spd", "SPD",             "\e[38;2;255;40;40m");
     public static Party FDP { get; }       = new("fdp", "FDP",             "\e[38;2;255;200;0m");
     public static Party AFD { get; }       = new("afd", "AfD",             "\e[38;2;0;158;224m");
@@ -252,7 +253,7 @@ public sealed class Poll
         SourceURI = source_uri;
 
         if (!values.ContainsKey(Party.__OTHER__))
-            values[Party.__OTHER__] = 1 - values.Values.Sum();
+            values[Party.__OTHER__] = Math.Max(0, 1 - values.Values.Sum());
 
         double sum = values.Values.Sum();
 
@@ -277,7 +278,7 @@ public sealed class Poll
     }
 
     public override string ToString() =>
-        $"{Date:yyyy-MM-dd}, {State?.ToString() ?? "BUND"} {Results.Select(kvp => $"| {kvp.Key.Identifier}: {kvp.Value:P1}").StringConcat()} ({SourceURI})";
+        $"{Date:yyyy-MM-dd}, {State?.ToString() ?? "BUND"} {Results.Select(kvp => $", {kvp.Key.Identifier}={kvp.Value:P1}").StringConcat()} ({SourceURI})";
 
     internal void Serialize(BinaryWriter writer)
     {
