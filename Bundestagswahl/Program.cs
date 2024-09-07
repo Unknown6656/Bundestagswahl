@@ -348,9 +348,9 @@ public sealed class Renderer
         Console.Write(s);
     }
 
-    private void RenderFrame(int width, int height)
+    private void RenderFrame(int width, int height, bool clear)
     {
-        RenderOuterFrame(width, height);
+        RenderBox(0, 0, width, height, clear);
 
         RenderFrameLine(Map.Width + 3, 0, height, false);
         RenderFrameLine(0, Map.Height + 3, Map.Width + 4, true);
@@ -445,7 +445,7 @@ public sealed class Renderer
         }
     }
 
-    private void RenderHistoricPlot(int width, int height)
+    private void RenderHistoricPlot(int width, int height, IPoll[] historic)
     {
         int left = Map.Width + 6;
 
@@ -467,7 +467,7 @@ public sealed class Renderer
         Console.Write("QUELLE  <[  xxxxxxxx  ]>");
     }
 
-    private void RenderResults(int width, int height, PollResult poll)
+    private void RenderResults(int width, int height, IPoll? poll)
     {
         int left = Map.Width + 6;
         int top = TIME_PLOT_HEIGHT + 2;
@@ -477,34 +477,78 @@ public sealed class Renderer
 
         Console.CursorTop = top;
         Console.CursorLeft = left;
-        Console.Write($"\e[0mUmfrageergebnis am {poll.Date:yyyy-MM-dd} für: ");
-        Console.Write(string.Join(", ", from kvp in _selected_states
-                                        where kvp.Value
-                                        let color = MapColoring.Default.States[kvp.Key].Color
-                                        select $"{color}{kvp.Key}\e[0m"));
+
+        if (poll is { })
+        {
+            Console.Write($"\e[0mUmfrageergebnis am {poll.Date:yyyy-MM-dd} für: ");
+            Console.Write(string.Join(", ", from kvp in _selected_states
+                                            where kvp.Value
+                                            let color = MapColoring.Default.States[kvp.Key].Color
+                                            select $"{color}{kvp.Key}\e[0m"));
+        }
 
         foreach ((Party party, int index) in Party.All.WithIndex())
             RenderPartyResult(left, top + 2 + index, width, poll, party);
 
-        Console.CursorTop += 2;
+        Console.CursorTop += 3;
         Console.CursorLeft = left;
-        Console.Write($"\e[0mKoalitionsmöglichkeiten:");
+        Console.Write($"\e[0mPol. Kompass:");
+        Console.CursorLeft = left + 35;
+        Console.Write($"Koalitionsmöglichkeiten:");
 
         int y = Console.CursorTop;
+        int spc = y - top + 1;
 
-        foreach ((Party[] parties, int index) in Coalitions.WithIndex())
-            RenderCoalition(left + 1, y + index + 2, width - 50, new(poll, parties));
+        RenderCompass(left, y + 2, Math.Min(20, spc - 1), poll);
+
+        Coalition[] coalitions = poll is { } ? Coalitions.Select(parties => new Coalition(poll, parties))
+                                                         .Where(c => c.CoalitionParties.Length > 1) // filter coalitions where all other parties are < 5%
+                                                         .Distinct()
+                                                         .OrderByDescending(c => c.CoalitionPercentage)
+                                                         .Take(spc)
+                                                         .ToArray() : [];
+
+        foreach ((Coalition coalition, int index) in coalitions.WithIndex())
+            RenderCoalition(left + 35, y + index + 2, width - 40, poll is { } ? coalition : null);
+
+        for (int i = coalitions.Length; i < spc; ++i)
+        {
+            Console.CursorTop = y + i + 2;
+            Console.CursorLeft = left + 35;
+            Console.Write(new string(' ', width - 40));
+        }
     }
 
-    private void RenderPartyResult(int left, int top, int width, PollResult poll, Party party)
+    private static void RenderCompass(int left, int top, int height, IPoll? poll)
     {
-        width -= 20;
+        if (height % 2 == 0)
+            ++height;
+
+        int width = (int)(height * 1.8);
+
+        if (width % 2 == 0)
+            ++width;
+
+        RenderBox(left, top, width, height, false, "\e[38;2;80;80;80m");
+
+        for (int y = 1; y < height - 1; y += 2)
+            for (int x = 1; x < width - 1; x += 2)
+            {
+                Console.CursorLeft = left + x;
+                Console.CursorTop = top + y;
+                Console.Write('-');
+            }
+    }
+
+    private static void RenderPartyResult(int left, int top, int width, IPoll? poll, Party party)
+    {
+        width -= 21;
 
         Console.CursorTop = top;
         Console.CursorLeft = left;
         Console.Write("\e[0m" + party.Identifier.ToString().ToUpper());
 
-        double percentage = poll[party];
+        double percentage = poll?[party] ?? 0;
         string status = percentage switch
         {
             > .666 => "\e[92m⬤⬤⬤",
@@ -536,7 +580,7 @@ public sealed class Renderer
         Console.Write((party.VT100Color + new string('⣿', w) + end).TrimEnd());
     }
 
-    private void RenderCoalition(int left, int top, int width, Coalition coalition)
+    private static void RenderCoalition(int left, int top, int width, Coalition? coalition)
     {
         Console.ForegroundColor = ConsoleColor.DarkGray;
         Console.CursorLeft = left;
@@ -612,7 +656,7 @@ public sealed class Renderer
                 return;
         }
 
-        Render();
+        Render(false);
     }
 }
 
@@ -672,7 +716,7 @@ public static class Program
                         ConsoleExtensions.FullClear();
                         renderer.Render();
                     }
-                    catch
+        await renderer.FetchPollsAsync();
                     {
                         ConsoleExtensions.FullClear();
                         renderer.Render(); // do smth. if it fails the second time
