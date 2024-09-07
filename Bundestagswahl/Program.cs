@@ -102,7 +102,7 @@ public sealed class Renderer
             {
                 _render_size = value is RenderSize.Small or RenderSize.Medium or RenderSize.Large ? value : RenderSize.Small;
 
-                Render();
+                Render(true);
             }
         }
     }
@@ -143,8 +143,11 @@ public sealed class Renderer
         ConsoleExtensions.RestoreConsoleState(_console_state);
     }
 
-    public void Render()
+    public void Render(bool clear)
     {
+        if (clear)
+            ConsoleExtensions.FullClear();
+
         (int min_width, int min_height) = _min_sizes[_render_size];
         int width = Console.WindowWidth;
         int height = Console.WindowHeight;
@@ -179,7 +182,7 @@ public sealed class Renderer
             ++CurrentRenderSize;
         else
         {
-            RenderFrame(width, height);
+            RenderFrame(width, height, clear);
             RenderMap(height);
             RenderHistoricPlot(width, TIME_PLOT_HEIGHT);
 
@@ -310,7 +313,7 @@ public sealed class Renderer
             }
     }
 
-    private void RenderOuterFrame(int width, int height)
+    private static void RenderBox(int x, int y, int width, int height, bool clear, string color = "\e[0;97m")
     {
         string s = $"\e[0;97m┌{new string('─', width - 2)}┐";
 
