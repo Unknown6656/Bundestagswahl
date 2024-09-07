@@ -348,19 +348,22 @@ public sealed class Renderer
         Console.Write($"{color}┌{new string('─', width - 2)}┐");
 
         for (int i = 1; i < height - 1; ++i)
+        {
+            Console.CursorTop = y + i;
+            Console.CursorLeft = x;
+
             if (clear)
-                Console.Write($"\n│{new string(' ', width - 2)}│");
+                Console.Write($"│{new string(' ', width - 2)}│");
             else
             {
-                Console.CursorTop = i;
-                Console.CursorLeft = 0;
                 Console.Write('│');
-                Console.CursorLeft = width - 1;
+                Console.CursorLeft = x + width - 1;
                 Console.Write('│');
             }
+        }
 
-        Console.CursorTop = height - 1;
-        Console.CursorLeft = 0;
+        Console.CursorTop = y + height - 1;
+        Console.CursorLeft = x;
         Console.Write($"└{new string('─', width - 2)}┘");
     }
 
