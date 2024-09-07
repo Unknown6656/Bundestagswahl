@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Text;
 using System.Linq;
@@ -49,6 +49,15 @@ public sealed class Renderer
         [RenderSize.Large] = (190, 99),
     };
 
+    public const string CACHE_FILE = "poll-cache.bin";
+    public const ConsoleKey KEY_VIEW_SWITCH = ConsoleKey.Tab;
+    public const ConsoleKey KEY_STATE_ENTER = ConsoleKey.Enter;
+    public const ConsoleKey KEY_STATE_NEXT = ConsoleKey.RightArrow;
+    public const ConsoleKey KEY_STATE_PREV = ConsoleKey.LeftArrow;
+    public const ConsoleKey KEY_STATE_UP = ConsoleKey.UpArrow;
+    public const ConsoleKey KEY_STATE_DOWN = ConsoleKey.DownArrow;
+    public const int TIME_PLOT_HEIGHT = 20;
+
     public static Party[][] Coalitions { get; } = [
         [Party.CDU, Party.SPD],
         [Party.CDU, Party.SPD, Party.FDP],
@@ -68,23 +77,19 @@ public sealed class Renderer
         [Party.AFD, Party.BSW],
     ];
 
-    private readonly ConsoleState _console_state;
+
+    private DateTime _start_date = new(1900, 1, 1);
+    private DateTime _end_date = DateTime.UtcNow;
     private readonly Dictionary<State, bool> _selected_states = _state_values.ToDictionary(LINQ.id, s => true);
+    private readonly ConsoleState _console_state;
     private StateCursorPosition _state_cursor = StateCursorPosition.Federal;
     private Views _current_view = Views.States;
     private RenderSize _render_size;
 
-    public const string CACHE_FILE = "poll-cache.bin";
-    public const ConsoleKey KEY_VIEW_SWITCH = ConsoleKey.Tab;
-    public const ConsoleKey KEY_STATE_ENTER = ConsoleKey.Enter;
-    public const ConsoleKey KEY_STATE_NEXT = ConsoleKey.RightArrow;
-    public const ConsoleKey KEY_STATE_PREV = ConsoleKey.LeftArrow;
-    public const ConsoleKey KEY_STATE_UP = ConsoleKey.UpArrow;
-    public const ConsoleKey KEY_STATE_DOWN = ConsoleKey.DownArrow;
-    public const int TIME_PLOT_HEIGHT = 20;
-
 
     public bool IsActive { get; private set; } = true;
+
+    public PollResult Polls { get; private set; } = PollResult.Empty;
 
     public PollFetcher PollFetcher { get; }
 
