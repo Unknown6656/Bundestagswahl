@@ -7,6 +7,7 @@ using System;
 using Unknown6656.Runtime.Console;
 using Unknown6656.Runtime;
 using Unknown6656.Generics;
+using Unknown6656.Common;
 
 namespace Bundestagswahl;
 
@@ -336,16 +337,25 @@ public sealed class Renderer
 
     private static void RenderBox(int x, int y, int width, int height, bool clear, string color = "\e[0;97m")
     {
-        string s = $"\e[0;97m┌{new string('─', width - 2)}┐";
+        Console.CursorTop = y;
+        Console.CursorLeft = x;
+        Console.Write($"{color}┌{new string('─', width - 2)}┐");
 
-        for (int i = 0; i < height - 2; ++i)
-            s += $"\n│{new string(' ', width - 2)}│";
+        for (int i = 1; i < height - 1; ++i)
+            if (clear)
+                Console.Write($"\n│{new string(' ', width - 2)}│");
+            else
+            {
+                Console.CursorTop = i;
+                Console.CursorLeft = 0;
+                Console.Write('│');
+                Console.CursorLeft = width - 1;
+                Console.Write('│');
+            }
 
-        s += $"\n└{new string('─', width - 2)}┘";
-
-        Console.CursorTop = 0;
+        Console.CursorTop = height - 1;
         Console.CursorLeft = 0;
-        Console.Write(s);
+        Console.Write($"└{new string('─', width - 2)}┘");
     }
 
     private void RenderFrame(int width, int height, bool clear)
@@ -434,14 +444,10 @@ public sealed class Renderer
                 Console.Write("\e[7m");
 
             Console.Write($"[{txt.PadRight(3),4}]\e[27m");
-
-            if (cursor == _state_cursor)
-            {
-                Console.CursorTop = y + 1;
-                Console.CursorLeft = x;
-                Console.ForegroundColor = ConsoleColor.Gray;
-                Console.Write("\e[6m°°°°°°\e[25m");
-            }
+            Console.CursorTop = y + 1;
+            Console.CursorLeft = x;
+            Console.ForegroundColor = ConsoleColor.Gray;
+            Console.Write(cursor == _state_cursor? "\e[6m°°°°°°\e[25m" : "      ");
         }
     }
 
@@ -558,13 +564,13 @@ public sealed class Renderer
             _ => "\e[31m⬤\e[90m◯◯",
         };
 
-        if (party == poll.StrongestParty)
+        if (party == poll?.StrongestParty)
             status += "\e[94m⬤";
         else
             status += "\e[90m◯";
 
         Console.CursorLeft = left + 5;
-        Console.Write($"\e[38;2;80;80;80m{new string('·', width)}\e[0m {percentage,5:P1}  {status}");
+        Console.Write($"\e[38;2;80;80;80m{new string('·', width)}\e[0m {percentage,6:P1}  {status}");
 
         for (double d = 0; d <= 1; d += .125)
         {
@@ -582,26 +588,47 @@ public sealed class Renderer
 
     private static void RenderCoalition(int left, int top, int width, Coalition? coalition)
     {
-        Console.ForegroundColor = ConsoleColor.DarkGray;
         Console.CursorLeft = left;
         Console.CursorTop = top;
-        Console.Write($"{new string('─', width - 1)}┘ {coalition.CoalitionPercentage:P1}  (");
-        Console.Write(coalition.CoalitionParties.Select(party => party.VT100Color + party.Identifier.ToString().ToUpper() + "\e[0m").StringJoin(", "));
-        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write(new string(' ', width));
+
+        width -= 30;
+
+        Console.CursorLeft = left;
+        Console.Write($"\e[38;2;80;80;80m└{new string('─', width - 2)}┘");
+
+        if (coalition?.CoalitionPercentage is double perc and > 0)
+        {
+            Console.ForegroundColor = perc switch
+            {
+                >= .5 => ConsoleColor.Green,
+                >= .33 => ConsoleColor.Yellow,
+                >= .25 => ConsoleColor.DarkYellow,
+                _ => ConsoleColor.Red,
+            };
+            Console.Write($" {perc,6:P1} ");
+        }
+        else
+            Console.Write("        ");
+
+        Console.ForegroundColor = ConsoleColor.Gray;
+        Console.Write('(');
+        Console.Write(coalition?.CoalitionParties?.Select(party => party.VT100Color + party.Identifier.ToString().ToUpper() + "\e[0m").StringJoin(", "));
+        Console.ForegroundColor = ConsoleColor.Gray;
         Console.Write(')');
 
         Console.CursorLeft = left + width / 2 - 1;
-        Console.Write("┴");
+        Console.Write("\e[38;2;80;80;80m┴");
         Console.CursorLeft = left;
 
-        foreach (Party party in coalition.CoalitionParties)
-        {
-            int w = (int)double.Round(coalition[party] * width);
+        if (coalition is { })
+            foreach (Party party in coalition.CoalitionParties)
+            {
+                int w = (int)double.Round(coalition[party] * width);
 
-            Console.Write(party.VT100Color + new string('━', w));
-        }
+                Console.Write(party.VT100Color + new string('━', w));
+            }
     }
-
 
     public void HandleInput(ConsoleKeyInfo key)
     {
