@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 using System.Collections.ObjectModel;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -8,6 +8,8 @@ using System.Globalization;
 using System.Diagnostics;
 using System.Net.Http;
 using System.Linq;
+using System.Text;
+using System.Web;
 using System.IO;
 using System;
 
@@ -323,9 +325,6 @@ public sealed partial class PollFetcher(FileInfo cachefile)
         $"{BASE_URL_FEDERAL}yougov.htm",
         $"{BASE_URL_FEDERAL}ipsos.htm",
     ];
-    private static readonly Regex _regex_backpath = GenerateRegexBackpath();
-    private static readonly Regex _regex_date = GenerateRegexDate();
-
 
 
     public void InvalidateCache()
@@ -390,14 +389,14 @@ public sealed partial class PollFetcher(FileInfo cachefile)
         return results;
     }
 
-    public static async Task<PollResult[]> FetchAllPollResultsAsync()
+    public static async Task<PollResult> FetchAllPollsAsync()
     {
-        IDictionary<string, HtmlDocument> documents = await FetchAllPollsAsync();
-        ConcurrentBag<PollResult> results = [];
+        IDictionary<string, HtmlDocument> documents = await FetchHTMLDocuments();
+        ConcurrentBag<Poll> results = [];
 
-        Parallel.ForEach(documents, kvp => FetchPollResults(kvp.Value, kvp.Key).Do(results.Add));
+        Parallel.ForEach(documents, kvp => ParseHTMLDocument(kvp.Value, kvp.Key).Do(results.Add));
 
-        return [.. results.OrderBy(r => r.Date)];
+        return new(results.OrderBy(r => r.Date));
     }
 
     private static async Task<HtmlDocument> GetHTMLAsync(string uri)
@@ -413,7 +412,7 @@ public sealed partial class PollFetcher(FileInfo cachefile)
     private static string[] GetMorePollingLinks(HtmlDocument document, string selector = "//p[@class='navi'][1]/a[@href]") =>
         document.DocumentNode.SelectNodes(selector) is { } nodes ? [.. nodes.Select(node => node.GetAttributeValue("href", ""))] : [];
 
-    private static async Task<IDictionary<string, HtmlDocument>> FetchAllPollsAsync()
+    private static async Task<IDictionary<string, HtmlDocument>> FetchHTMLDocuments()
     {
         ConcurrentDictionary<string, HtmlDocument> results = [];
         ConcurrentHashSet<string> open = [];
@@ -429,14 +428,13 @@ public sealed partial class PollFetcher(FileInfo cachefile)
                 {
                     string sanitized_uri = uri[..(uri.TrimEnd('/').LastIndexOf('/') + 1)] + link;
 
-                    sanitized_uri = _regex_backpath.Replace(sanitized_uri, "");
+                    sanitized_uri = GenerateRegexBackpath().Replace(sanitized_uri, "");
 
                     open.Add(sanitized_uri);
                 }
         }
 
-        //await Parallel.ForEachAsync(BASE_URL_FEDERAL_POLLING.Concat(BASE_URL_STATES.Values), async (base_uri, _) => await fetch(base_uri));
-        await Parallel.ForEachAsync([BASE_URL_STATES[State.BW]], async (base_uri, _) => await fetch(base_uri));
+        await Parallel.ForEachAsync(BASE_URL_FEDERAL_POLLING.Concat(BASE_URL_STATES.Values), async (base_uri, _) => await fetch(base_uri));
 
         while (open.Count > 0 && open.First() is string uri)
         {
@@ -449,13 +447,17 @@ public sealed partial class PollFetcher(FileInfo cachefile)
         return results;
     }
 
-    private static IEnumerable<PollResult> FetchPollResults(HtmlDocument document, string source_uri)
+    private static string NormalizeURI(string uri) => Normalize(uri).Replace(BASE_URL_FEDERAL, "").TrimEnd(".htm");
+
+    private static IEnumerable<Poll> ParseHTMLDocument(HtmlDocument document, string source_uri)
     {
         HtmlNodeCollection tables = document.DocumentNode.SelectNodes("//table[@class='wilko']");
         State? state = null;
 
+        source_uri = NormalizeURI(source_uri);
+
         foreach ((State s, string uri) in BASE_URL_STATES)
-            if (uri == source_uri)
+            if (source_uri.Contains(NormalizeURI(uri)))
             {
                 state = s;
 
@@ -468,8 +470,6 @@ public sealed partial class PollFetcher(FileInfo cachefile)
             Dictionary<int, Party> header = [];
             int? participant_index = null;
             int? pollster_index = null;
-            int? date_index = null;
-            int? datespan_index = null;
 
             foreach ((HtmlNode node, int index) in toprow.WithIndex())
                 if (!node.GetAttributeValue("class", "").Contains("dat", StringComparison.OrdinalIgnoreCase) && Party.TryGetParty(node.InnerText) is Party party)
@@ -482,13 +482,6 @@ public sealed partial class PollFetcher(FileInfo cachefile)
                         pollster_index = index;
                     else if (header_text.Contains("befragte") || header_text.Contains("teilnehmer"))
                         participant_index = index;
-                    else if (header_text.Contains("datum"))
-                        date_index = index;
-                    else if (header_text.Contains("zeitraum"))
-                    {
-                        date_index ??= index;
-                        datespan_index = index;
-                    }
                 }
 
             foreach (HtmlNode row in table.SelectNodes("tbody/tr"))
@@ -504,17 +497,16 @@ public sealed partial class PollFetcher(FileInfo cachefile)
                             cells.AddRange(Enumerable.Repeat(cell, colspan - 1));
                     }
 
-                DateTime? date = TryFindDate(cells[date_index ?? 0].InnerText);
+                string normalized_joined = Normalize(cells.Select(cell => cell.InnerText).StringJoin(" "));
+                DateTime? date = TryFindDate(normalized_joined);
 
-                foreach (HtmlNode cell in cells.Skip(1))
-                    if ((date ??= TryFindDate(cell.InnerText)) is { })
-                        break;
+                date ??= TryFindDateRange(normalized_joined)?.End;
 
-                if (date is null)
+                if (date is null || header.Keys.Max() >= cells.Count)
                     continue; // TODO : find better solution
 
-                string pollster = pollster_index is null ? source_uri : Normalize(cells[pollster_index.Value].InnerText);
-                int? participants = participant_index.HasValue && int.TryParse(cells[participant_index.Value].InnerText, out int i) ? i : null;
+                string pollster = pollster_index is null || pollster_index >= cells.Count ? source_uri : Normalize(cells[pollster_index.Value].InnerText);
+                int? participants = participant_index.HasValue && participant_index < cells.Count && int.TryParse(cells[participant_index.Value].InnerText, out int i) ? i : null;
                 Dictionary<Party, double> votes = Party.All.ToDictionary(LINQ.id, _ => 0d);
 
                 foreach ((int index, Party party) in header)
@@ -542,20 +534,19 @@ public sealed partial class PollFetcher(FileInfo cachefile)
         }
     }
 
-    public static string Normalize(string text) => text.Trim()
-                                                       .ToLowerInvariant()
-                                                       .RemoveDiacritics()
-                                                       .Replace('•', '.')
-                                                       .Replace('–', '-') // en dash
-                                                       .Replace('—', '-') // em dash
-                                                       .Replace('‒', '-') // fig dash
-                                                       .Replace('―', '-');// hor. bar
+    public static string Normalize(string text) => HttpUtility.HtmlDecode(text)
+                                                              .Trim()
+                                                              .ToLowerInvariant()
+                                                              .RemoveDiacritics()
+                                                              .Replace('•', '.')
+                                                              .Replace('–', '-') // en dash
+                                                              .Replace('—', '-') // em dash
+                                                              .Replace('‒', '-') // fig dash
+                                                              .Replace('―', '-');// hor. bar
 
     public static DateTime? TryFindDate(string text)
     {
-        text = Normalize(text);
-
-        foreach (Match match in _regex_date.Matches(text))
+        foreach (Match match in GenerateRegexDate().Matches(text))
         {
             string format = match.Value.Contains('-') ? "yyyy-MM-dd" : "dd.MM.yyyy";
 
@@ -568,24 +559,31 @@ public sealed partial class PollFetcher(FileInfo cachefile)
 
     public static (DateTime Start, DateTime End)? TryFindDateRange(string text)
     {
-        text = Normalize(text);
+        foreach (Match match in GenerateRegexDateRange().Matches(text))
+        {
+            string start = match.Groups["start"].Value;
+            string end = match.Groups["end"].Value;
 
-        throw null;
+            if (start.CountOccurences(".") == 2)
+                start = "01." + start;
 
-        //foreach (Match match in _regex_date.Matches(text))
-        //{
-        //    string format = match.Value.Contains('-') ? "yyyy-MM-dd" : "dd.MM.yyyy";
+            if (end.CountOccurences(".") == 2)
+                end = "01." + end;
 
-        //    if (DateTime.TryParseExact(match.Value, format, null, DateTimeStyles.None, out DateTime date))
-        //        return date;
-        //}
+            if (DateTime.TryParse(start, out DateTime s) && DateTime.TryParse(end, out DateTime e))
+                return (s, e);
+        }
 
-        //return null;
+        return null;
     }
+
 
     [GeneratedRegex(@"/[^/]*?/\.\.", RegexOptions.Compiled | RegexOptions.ECMAScript)]
     private static partial Regex GenerateRegexBackpath();
 
     [GeneratedRegex(@"(\d{1,2}\.\d{1,2}\.\d{2}(\d{2})?|\d{4}-\d{2}-\d{2})", RegexOptions.Compiled | RegexOptions.ECMAScript)]
     private static partial Regex GenerateRegexDate();
+
+    [GeneratedRegex(@"(?<start>(\d{1,2}\.)?\d{1,2}\.\d{2}(\d{2})?)\s*-+\s*(?<end>(\d{1,2}\.)?\d{1,2}\.\d{2}(\d{2})?)", RegexOptions.Compiled | RegexOptions.ECMAScript)]
+    private static partial Regex GenerateRegexDateRange();
 }
