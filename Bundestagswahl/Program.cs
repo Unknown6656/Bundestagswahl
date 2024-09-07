@@ -726,39 +726,29 @@ public static class Program
         {
             CurrentRenderSize = RenderSize.Large
         };
-        using Task resize_watcher = Task.Factory.StartNew(async delegate
+        await using ConsoleResizeListener resize = new();
+
+        resize.SizeChanged += (_, _, _, _) =>
         {
-            int width = Console.WindowWidth;
-            int height = Console.WindowHeight;
-            int timeout = 100;
+            // fix rendering of modal form during resizing.
 
-            do
-                if ((Console.WindowWidth, Console.WindowHeight) is (int nw, int nh) && (nw, nh) != (width, height))
-                {
-                    timeout = 100;
-                    (width, height) = (nw, nh);
+            try
+            {
+                renderer.Render(true);
+            }
+            catch
+            {
+                renderer.Render(true); // do smth. if it fails the second time
+            }
+        };
+        resize.Start();
 
-                    try
-                    {
-                        ConsoleExtensions.FullClear();
-                        renderer.Render();
-                    }
         await renderer.FetchPollsAsync();
-                    {
-                        ConsoleExtensions.FullClear();
-                        renderer.Render(); // do smth. if it fails the second time
-                    }
-                }
-                else
-                    await Task.Delay(timeout = Math.Max(500, timeout + 50));
-            while (renderer.IsActive);
-        });
-
-        var results = await renderer.RenderFetchingPrompt(renderer.PollFetcher.FetchAsync);
-
 
         while (Console.ReadKey(true) is { Key: not ConsoleKey.Escape } key)
             renderer.HandleInput(key);
+
+        resize.Stop();
 
         Console.CursorTop = Console.WindowHeight - 1;
         Console.CursorLeft = Console.WindowWidth - 1;
