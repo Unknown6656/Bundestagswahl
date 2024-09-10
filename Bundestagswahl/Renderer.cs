@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Text;
 using System.Linq;
@@ -25,6 +25,23 @@ public enum Views
     Source,
     Historic,
     Result,
+}
+
+[Flags]
+public enum RenderInvalidation
+    : int
+{
+    None            = 0b_00000000_00000000_00000000_00000000,
+    FrameBorder     = 0b_00000000_00000000_00000000_00000001,
+    FrameText       = 0b_00000000_00000000_00000000_00000010,
+    Map             = 0b_00000000_00000000_00000000_00000100,
+    StateSelector   = 0b_00000000_00000000_00000000_00001000,
+    DataSource      = 0b_00000000_00000000_00000000_00010000,
+    HistoricPlot    = 0b_00000000_00000000_00000000_00100000,
+    PollResults     = 0b_00000000_00000000_00000000_01000000,
+    Compass         = 0b_00000000_00000000_00000000_10000000,
+    Coalitions      = 0b_00000000_00000000_00000001_00000000,
+    //0b_00000000_00000000_00000010_00000000,
 }
 
 public sealed class Renderer
@@ -58,7 +75,6 @@ public sealed class Renderer
     public const ConsoleKey KEY_STATE_PREV = ConsoleKey.LeftArrow;
     public const ConsoleKey KEY_STATE_UP = ConsoleKey.UpArrow;
     public const ConsoleKey KEY_STATE_DOWN = ConsoleKey.DownArrow;
-    public const int TIME_PLOT_HEIGHT = 20;
 
     public static Party[][] Coalitions { get; } = [
         [Party.CDU, Party.SPD],
@@ -92,6 +108,7 @@ public sealed class Renderer
     private readonly ConsoleState _console_state;
     private StateCursorPosition _state_cursor = StateCursorPosition.Federal;
     private Views _current_view = Views.States;
+    private RenderInvalidation _invalidate;
     private RenderSize _render_size;
 
 
@@ -127,6 +144,8 @@ public sealed class Renderer
     {
         _console_state = ConsoleExtensions.SaveConsoleState();
 
+        InvalidateAll();
+
         ConsoleExtensions.ClearAndResetAll();
         Console.OutputEncoding = Encoding.UTF8;
         Console.InputEncoding = Encoding.UTF8;
@@ -136,6 +155,10 @@ public sealed class Renderer
     }
 
     ~Renderer() => Dispose(false);
+
+    public void InvalidateAll() => Invalidate(~RenderInvalidation.None);
+
+    public void Invalidate(RenderInvalidation invalidation) => _invalidate |= invalidation;
 
     public void Dispose()
     {
@@ -154,7 +177,10 @@ public sealed class Renderer
     public void Render(bool clear)
     {
         if (clear)
+        {
+            InvalidateAll();
             ConsoleExtensions.FullClear();
+        }
 
         (int min_width, int min_height) = _min_sizes[_render_size];
         int width = Console.WindowWidth;
@@ -172,6 +198,7 @@ public sealed class Renderer
         if (width < min_width || height < min_height)
             if (_render_size is RenderSize.Small)
             {
+                InvalidateAll();
                 ConsoleExtensions.FullClear();
                 Console.Write("\e[91;1m");
                 Console.WriteLine($"""
@@ -190,17 +217,22 @@ public sealed class Renderer
             ++CurrentRenderSize;
         else
         {
-            RenderFrame(width, height, clear);
+            int timeplot_height = (int)double.Clamp(height * height * .006, 20, height * .4);
+            (PollHistory historic, MergedPoll? display) = FetchPolls();
+
+            RenderFrame(width, height, timeplot_height, clear);
             RenderMap(height);
+            RenderSourceSelection(Map.Width + 6, 30, timeplot_height);
+            RenderHistoricPlot(width, timeplot_height, historic);
+            RenderResults(width, height, timeplot_height, display);
 
-            (IPoll[] historic, IPoll? display) = FetchPolls();
+            Console.Write("\e[m");
 
-            RenderHistoricPlot(width, TIME_PLOT_HEIGHT, historic);
-            RenderResults(width, height, display);
+            _invalidate = RenderInvalidation.None;
         }
     }
 
-    private (IPoll[] Historic, IPoll? Display) FetchPolls()
+    private (PollHistory Historic, MergedPoll? Display) FetchPolls()
     {
         List<State?> states = _selected_states.SelectWhere(kvp => kvp.Value, kvp => (State?)kvp.Key).ToList();
 
@@ -209,14 +241,18 @@ public sealed class Renderer
         else if (states.Contains(State.BE))
             states.AddRange([State.BE_W, State.BE_O]);
 
-        Poll[] filtered = Polls.Polls.Where(p => p.Date >= _start_date
-                                              && p.Date <= _end_date
-                                              && states.Contains(p.State)).ToArray();
-        MergedPoll newest = new([..states.Select(s => filtered.Where(p => p.State == s)
-                                                              .FirstOrDefault())
-                                         .Where(p => p is { })]);
+        PollHistory history = new(from p in Polls.Polls
+                                  where p.Date >= _start_date
+                                     && p.Date <= _end_date
+                                     && states.Contains(p.State)
+                                  group p by p.Date into g
+                                  select new MergedPoll([.. g]));
 
-        return (filtered, newest);
+
+        MergedPoll? display = history.Polls.LastOrDefault(); // TODO <--- make this based on the current date selection
+
+
+        return (history, display);
     }
 
     public async Task FetchPollsAsync() => Polls = await RenderFetchingPrompt(PollFetcher.FetchAsync);
@@ -370,21 +406,27 @@ public sealed class Renderer
         Console.Write($"└{new string('─', width - 2)}┘");
     }
 
-    private void RenderFrame(int width, int height, bool clear)
+    private void RenderFrame(int width, int height, int timeplot_height, bool clear)
     {
-        RenderBox(0, 0, width, height, clear);
+        if (_invalidate.HasFlag(RenderInvalidation.FrameBorder))
+        {
+            RenderBox(0, 0, width, height, clear);
 
-        RenderFrameLine(Map.Width + 3, 0, height, false);
-        RenderFrameLine(0, Map.Height + 3, Map.Width + 4, true);
-        RenderFrameLine(Map.Width + 3, TIME_PLOT_HEIGHT, width - Map.Width - 3, true);
-        RenderFrameLine(Map.Width + 35, 0, TIME_PLOT_HEIGHT + 1, false);
-        //RenderFrameLine(Map.Width + 3, 0, Map.Width + 4, false);
+            RenderFrameLine(Map.Width + 3, 0, height, false);
+            RenderFrameLine(0, Map.Height + 3, Map.Width + 4, true);
+            RenderFrameLine(Map.Width + 3, timeplot_height, width - Map.Width - 3, true);
+            RenderFrameLine(Map.Width + 32, 0, timeplot_height + 1, false);
+            //RenderFrameLine(Map.Width + 3, 0, Map.Width + 4, false);
+        }
 
-        RenderTitle(4, 0, "ÜBERSICHTSKARTE DEUTSCHLAND", false);
-        RenderTitle(4, Map.Height + 3, "BUNDESLÄNDER", _current_view is Views.States);
-        RenderTitle(Map.Width + 8, 0, "ZEITRAHMEN & QUELLE", _current_view is Views.Source);
-        RenderTitle(Map.Width + 40, 0, "HISTORISCHER VERLAUF", _current_view is Views.Historic);
-        RenderTitle(Map.Width + 8, TIME_PLOT_HEIGHT, "UMFRAGEERGEBNISSE", _current_view is Views.Result);
+        if (_invalidate.HasFlag(RenderInvalidation.FrameText))
+        {
+            RenderTitle(3, 0, "ÜBERSICHTSKARTE DEUTSCHLAND", false);
+            RenderTitle(3, Map.Height + 3, "BUNDESLÄNDER", _current_view is Views.States);
+            RenderTitle(Map.Width + 6, 0, "ZEITRAHMEN & QUELLE", _current_view is Views.Source);
+            RenderTitle(Map.Width + 35, 0, "HISTORISCHER VERLAUF", _current_view is Views.Historic);
+            RenderTitle(Map.Width + 6, timeplot_height, "UMFRAGEERGEBNISSE", _current_view is Views.Result);
+        }
     }
 
     private void RenderMap(int height)
@@ -403,79 +445,158 @@ public sealed class Renderer
         else
             selected_states.Remove(State.BE);
 
+        //else if (selected_states.Contains(State.BE))
+        //{
+        //    selected_states.Add(State.BE_W);
+        //    selected_states.Add(State.BE_O);
+        //}
+
+        if (_invalidate.HasFlag(RenderInvalidation.Map))
+                Map.RenderToConsole(new(
+                _state_values.ToDictionary(LINQ.id, s => selected_states.Contains(s) ? coloring.States[s] : ("\e[90m", '·'))
+            ), 2, 2);
+
         int sel_width = Map.Width / 8;
 
-        foreach ((StateCursorPosition cursor, int index) in _state_cursor_values.WithIndex())
-        {
-            int x = 3 + (index % sel_width) * 8;
-            int y = Map.Height + 5 + (index / sel_width) * 2;
-            State state = (State)cursor;
-
-            string txt = cursor switch
+        if (_invalidate.HasFlag(RenderInvalidation.StateSelector))
+            foreach ((StateCursorPosition cursor, int index) in _state_cursor_values.WithIndex())
             {
-                StateCursorPosition.Federal => "BUND",
-                StateCursorPosition.Deselect => "KEIN",
-                StateCursorPosition.Invert => "INV.",
-                StateCursorPosition.West => "WEST",
-                StateCursorPosition.East => "OST",
-                StateCursorPosition.South => "SÜD",
-                StateCursorPosition.North => "NORD",
-                StateCursorPosition.Population => "BEV.",
-                StateCursorPosition.PopulationGrowth => "BEV+",
-                StateCursorPosition.Economy => "LFA+",
+                int x = 3 + (index % sel_width) * 8;
+                int y = Map.Height + 5 + (index / sel_width) * 2;
+                State state = (State)cursor;
+
+                string txt = cursor switch
+                {
+                    StateCursorPosition.Federal => "BUND",
+                    StateCursorPosition.Deselect => "KEIN",
+                    StateCursorPosition.Invert => "INV.",
+                    StateCursorPosition.West => "WEST",
+                    StateCursorPosition.East => "OST",
+                    StateCursorPosition.South => "SÜD",
+                    StateCursorPosition.North => "NORD",
+                    StateCursorPosition.Population => "BEV.",
+                    StateCursorPosition.PopulationGrowth => "BEV+",
+                    StateCursorPosition.Economy => "LFA+",
                     StateCursorPosition.BE_O => "O-BE",
                     StateCursorPosition.BE_W => "W-BE",
+                    _ => state.ToString(),
+                };
 
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.CursorTop = y;
-            Console.CursorLeft = x;
+                Console.ForegroundColor = ConsoleColor.White;
+                Console.CursorTop = y;
+                Console.CursorLeft = x;
 
-            if (_state_values.Contains(state))
-                Console.Write(coloring.States[state].Color);
+                if (_selected_states.ContainsKey(state))
+                    Console.Write(coloring.States[state].Color);
 
-            if (!_selected_states.TryGetValue(state, out bool active))
-                if (cursor is StateCursorPosition.Federal)
-                    active = _selected_states.Values.All(LINQ.id);
-                else if (cursor is StateCursorPosition.Deselect)
-                    active = _selected_states.Values.All(v => !v);
-                else if (cursor is StateCursorPosition.West)
-                    active = _selected_states.All(kvp => _state_values_west_ger.Contains(kvp.Key) == kvp.Value);
-                else if (cursor is StateCursorPosition.East)
-                    active = _selected_states.All(kvp => _state_values_west_ger.Contains(kvp.Key) != kvp.Value);
-                else if (cursor is StateCursorPosition.South)
-                    active = _selected_states.All(kvp => _state_values_south_ger.Contains(kvp.Key) == kvp.Value);
-                else if (cursor is StateCursorPosition.North)
-                    active = _selected_states.All(kvp => _state_values_north_ger.Contains(kvp.Key) == kvp.Value);
-                else if (cursor is StateCursorPosition.Population)
-                    active = _selected_states.All(kvp => _state_values_pop.Contains(kvp.Key) == kvp.Value);
-                else if (cursor is StateCursorPosition.PopulationGrowth)
-                    active = _selected_states.All(kvp => _state_values_pop_growth.Contains(kvp.Key) == kvp.Value);
-                else if (cursor is StateCursorPosition.Economy)
-                    active = _selected_states.All(kvp => _state_values_lfa.Contains(kvp.Key) == kvp.Value);
-                else
-                {
-                    // TODO
-                }
+                if (!_selected_states.TryGetValue(state, out bool active))
+                    if (cursor is StateCursorPosition.Federal)
+                        active = _selected_states.Values.All(LINQ.id);
+                    else if (cursor is StateCursorPosition.Deselect)
+                        active = _selected_states.Values.All(v => !v);
+                    else if (cursor is StateCursorPosition.West)
+                        active = _selected_states.All(kvp => _state_values_west_ger.Contains(kvp.Key) == kvp.Value);
+                    else if (cursor is StateCursorPosition.East)
+                        active = _selected_states.All(kvp => _state_values_east_ger.Contains(kvp.Key) == kvp.Value);
+                    else if (cursor is StateCursorPosition.South)
+                        active = _selected_states.All(kvp => _state_values_south_ger.Contains(kvp.Key) == kvp.Value);
+                    else if (cursor is StateCursorPosition.North)
+                        active = _selected_states.All(kvp => _state_values_north_ger.Contains(kvp.Key) == kvp.Value);
+                    else if (cursor is StateCursorPosition.Population)
+                        active = _selected_states.All(kvp => _state_values_pop.Contains(kvp.Key) == kvp.Value);
+                    else if (cursor is StateCursorPosition.PopulationGrowth)
+                        active = _selected_states.All(kvp => _state_values_pop_growth.Contains(kvp.Key) == kvp.Value);
+                    else if (cursor is StateCursorPosition.Economy)
+                        active = _selected_states.All(kvp => _state_values_lfa.Contains(kvp.Key) == kvp.Value);
+                    else
+                    {
+                        // TODO
+                    }
 
-            if (active)
-                Console.Write("\e[7m");
+                if (state is State.BE ? selected_states.Contains(State.BE_O) && selected_states.Contains(State.BE_W) : active)
+                    Console.Write("\e[7m");
 
-            Console.Write($"[{txt.PadRight(3),4}]\e[27m");
-            Console.CursorTop = y + 1;
-            Console.CursorLeft = x;
-            Console.ForegroundColor = ConsoleColor.Gray;
-            Console.Write(cursor == _state_cursor? "\e[6m°°°°°°\e[25m" : "      ");
-        }
+                Console.Write($"[{txt.PadRight(3),4}]\e[27m");
+                Console.CursorTop = y + 1;
+                Console.CursorLeft = x;
+                Console.ForegroundColor = ConsoleColor.Gray;
+                Console.Write(cursor == _state_cursor? "\e[6m°°°°°°\e[25m" : "      ");
+            }
     }
 
-    private void RenderHistoricPlot(int width, int height, IPoll[] historic)
+    private void RenderHistoricPlot(int width, int height, PollHistory historic)
     {
-        int left = Map.Width + 6;
+        if (!_invalidate.HasFlag(RenderInvalidation.HistoricPlot))
+            return;
+
+        double max_perc = 1;
+        DateTime end_date = DateTime.UtcNow;
+        DateTime start_date = end_date;
+        int left = Map.Width + 33;
 
         width -= left;
 
-        
+        if (historic.PollCount > 0)
+        {
+            max_perc = historic.Polls.Max(p => p[p.StrongestParty]);
+            start_date = historic.OldestPoll!.LatestDate;
+            end_date = historic.MostRecentPoll!.LatestDate;
+        }
 
+        DateTime get_date(double d)
+        {
+            d = double.IsFinite(d) ? double.Clamp(d, 0, 1) : 1;
+
+            long t = (long)(d * (end_date.Ticks - start_date.Ticks)) + start_date.Ticks;
+
+            return new(t);
+        }
+
+        int graph_height = height - 5;
+        int graph_width = width - 15;
+
+        for (int y = 0; y <= graph_height; ++y)
+        {
+            Console.CursorLeft = left + 2;
+            Console.CursorTop = 2 + y;
+
+            if (y < graph_height)
+                Console.Write($"\e[m{(graph_height - y) * max_perc / graph_height,6:P1} ");
+            else
+                Console.CursorLeft += 7;
+
+            Console.Write($"\e[38;2;80;80;80m{(y == 0 ? '┬' : y == graph_height ? '├' : '┼')}{new string(y == graph_height ? '─' : '·', graph_width)}");
+        }
+
+        for (int index = 0, columns = graph_width / 9; index <= columns; ++index)
+        {
+            double d = index * 9d / graph_width;
+
+            Console.CursorTop = graph_height + 2;
+            Console.CursorLeft = left + index * 9 + 9;
+            Console.Write("\e[38;2;80;80;80m" + (index == 0 ? '├' : '┼'));
+            Console.CursorTop = graph_height + 3;
+            Console.CursorLeft = left + index * 9 + 6;
+            Console.Write($"\e[m{get_date(d):yyyy-MM}");
+        }
+
+        for (int x = 0; x <= graph_width; ++x)
+        {
+            DateTime date = get_date((double)x / graph_width);
+            int y = (int)(graph_height * Random.Shared.NextDouble());
+
+
+
+            Console.CursorTop = 2 + y;
+            Console.CursorLeft = left + 9 + x;
+            Console.Write("⬤"); // *⬤◯
+        }
+    }
+
+    private void RenderSourceSelection(int left, int width, int height)
+    {
+        if (!_invalidate.HasFlag(RenderInvalidation.DataSource))
+            return;
 
         Console.CursorLeft = left;
         Console.CursorTop = 2;
@@ -488,118 +609,134 @@ public sealed class Renderer
         Console.CursorLeft = left;
         Console.CursorTop = 6;
         Console.Write("QUELLE  <[  xxxxxxxx  ]>");
+
+        Console.CursorLeft = left;
+        Console.CursorTop = height - 4;
+        Console.Write("[ DATEN AKTUALISIEREN ]");
     }
 
-    private void RenderResults(int width, int height, IPoll? poll)
+    private void RenderResults(int width, int height, int timeplot_height, IPoll? poll)
     {
         int left = Map.Width + 6;
-        int top = TIME_PLOT_HEIGHT + 2;
+        int top = timeplot_height + 2;
 
         width -= left;
         height -= top;
 
-        Console.CursorTop = top;
-        Console.CursorLeft = left;
-
-        if (poll is { })
+        if (_invalidate.HasFlag(RenderInvalidation.PollResults))
         {
-            Console.Write($"\e[0mUmfrageergebnis am {poll.Date:yyyy-MM-dd} für: ");
-            Console.Write(string.Join(", ", from kvp in _selected_states
-                                            where kvp.Value
-                                            let color = MapColoring.Default.States[kvp.Key].Color
-                                            select $"{color}{kvp.Key}\e[0m"));
+            Console.CursorTop = top;
+            Console.CursorLeft = left;
+
+            if (poll is { })
+            {
+                Console.Write($"\e[mUmfrageergebnis am {poll.Date:yyyy-MM-dd} für: ");
+                Console.Write(string.Join(", ", from kvp in _selected_states
+                                                where kvp.Value
+                                                let color = MapColoring.Default.States[kvp.Key].Color
+                                                select $"{color}{kvp.Key}\e[m"));
+
+                if (Console.WindowWidth - 2 - Console.CursorLeft is int cw and > 0)
+                    Console.Write(new string(' ', cw));
+            }
+
+            foreach ((Party party, int index) in Party.All.WithIndex())
+                RenderPartyResult(left, top + 2 + index, width, poll, party);
         }
 
-        foreach ((Party party, int index) in Party.All.WithIndex())
-            RenderPartyResult(left, top + 2 + index, width, poll, party);
+        top += 4 + Party.All.Length;
 
-        Console.CursorTop += 3;
-        Console.CursorLeft = left;
-        Console.Write("\e[0mPolitischer Kompass:");
-
-        int y = Console.CursorTop;
-        int vertical_space = height + top - y - 5;
-
-        (int coalition_x, _) = RenderCompass(left, y + 2, vertical_space - 4, poll);
-
-        coalition_x += 6;
-
-        Console.CursorTop = y;
-        Console.CursorLeft = left + coalition_x;
-        Console.Write("\e[0mKoalitionsmöglichkeiten:");
-
-        Coalition[] coalitions = poll is { } ? Coalitions.Select(parties => new Coalition(poll, parties))
-                                                         .Where(c => c.CoalitionParties.Length > 1) // filter coalitions where all other parties are < 5%
-                                                         .Distinct()
-                                                         .OrderByDescending(c => c.CoalitionPercentage)
-                                                         .Take(vertical_space)
-                                                         .ToArray() : [];
-
-        foreach ((Coalition coalition, int index) in coalitions.WithIndex())
-            RenderCoalition(left + coalition_x, y + index + 2, width - coalition_x - 5, poll is { } ? coalition : null);
-
-        for (int i = coalitions.Length; i < vertical_space; ++i)
+        if (_invalidate.HasFlag(RenderInvalidation.Compass))
         {
-            Console.CursorTop = y + i + 2;
+            Console.CursorTop = top;
+            Console.CursorLeft = left;
+            Console.Write("\e[mPolitischer Kompass:");
+        }
+
+        int vertical_space = height + timeplot_height - top;
+        (int coalition_x, _) = RenderCompass(left, top + 2, vertical_space - 4, poll);
+
+        if (_invalidate.HasFlag(RenderInvalidation.Coalitions))
+        {
+            coalition_x += 6;
+
+            Console.CursorTop = top;
             Console.CursorLeft = left + coalition_x;
-            Console.Write(new string(' ', width - coalition_x - 5));
+            Console.Write("\e[mKoalitionsmöglichkeiten:");
+
+            Coalition[] coalitions = poll is { } ? Coalitions.Select(parties => new Coalition(poll, parties))
+                                                             .Where(c => c.CoalitionParties.Length > 1) // filter coalitions where all other parties are < 5%
+                                                             .Distinct()
+                                                             .OrderByDescending(c => c.CoalitionPercentage)
+                                                             .Take(vertical_space)
+                                                             .ToArray() : [];
+
+            foreach ((Coalition coalition, int index) in coalitions.WithIndex())
+                RenderCoalition(left + coalition_x, top + index + 2, width - coalition_x - 5, poll is { } ? coalition : null);
+
+            for (int i = coalitions.Length; i < vertical_space - 2; ++i)
+            {
+                Console.CursorTop = top + i + 2;
+                Console.CursorLeft = left + coalition_x;
+                Console.Write(new string(' ', width - coalition_x - 5));
+            }
         }
     }
 
-    private static (int width, int height) RenderCompass(int left, int top, int height, IPoll? poll)
+    private (int width, int height) RenderCompass(int left, int top, int height, IPoll? poll)
     {
-        int width = height * 2;
-
         while (height % 2 != 1 || ((height - 2) / 2) % 2 != 1)
             ++height;
 
-        while (width % 3 != 1 || ((width - 2) / 3) % 2 != 1)
-            ++width;
+        int width = (height - 3) / 2 * 4 + 5;
 
-        RenderBox(left, top, width, height, false, "\e[90m");
-
-        Console.Write("\e[38;2;80;80;80m");
-
-        for (int y = 1; y < height - 1; ++y)
-            for (int x = 1; x < width - 1; ++x)
-            {
-                Console.CursorLeft = left + x;
-                Console.CursorTop = top + y;
-                Console.Write(y == height / 2 || x == width / 2 ? "\e[90m" : "\e[38;2;80;80;80m");
-                Console.Write((x % 3, y % 2) switch
-                {
-                    (0, 0) => '+',
-                    (_, 0) => '-',
-                    (0, 1) => '¦',
-                    _ => ' ',
-                });
-            }
-
-        void render_compas_dot(double lr, double al, string dot)
+        if (_invalidate.HasFlag(RenderInvalidation.Compass))
         {
-            int x = (int)Math.Round((double.Clamp(lr, -1, 1) + 1) * .5 * (width - 3));
-            int y = (int)Math.Round((double.Clamp(al, -1, 1) + 1) * .5 * (height - 3));
+            RenderBox(left, top, width, height, false, "\e[90m");
 
-            Console.CursorLeft = left + x + 1;
-            Console.CursorTop = top + y + 1;
-            Console.Write(dot);
-        }
+            Console.Write("\e[38;2;80;80;80m");
 
-        double lr_axis = 0;
-        double al_axis = 0;
+            for (int y = 1; y < height - 1; ++y)
+                for (int x = 1; x < width - 1; ++x)
+                {
+                    Console.CursorLeft = left + x;
+                    Console.CursorTop = top + y;
+                    Console.Write(y == height / 2 || x == width / 2 ? "\e[90m" : "\e[38;2;80;80;80m");
+                    Console.Write((x % 4, y % 2) switch
+                    {
+                        (0, 0) => '+',
+                        (_, 0) => '-',
+                        (0, 1) => '¦',
+                        _ => ' ',
+                    });
+                }
 
-        if (poll is { })
-            foreach (var party in Party.All)
+            void render_compas_dot(double lr, double al, string dot)
             {
-                double perc = poll[party];
+                int x = (int)Math.Round((double.Clamp(lr, -1, 1) + 1) * .5 * (width - 3));
+                int y = (int)Math.Round((double.Clamp(al, -1, 1) + 1) * .5 * (height - 3));
 
-                lr_axis += perc * party.EconomicLeftRightAxis;
-                al_axis += perc * party.AuthoritarianLibertarianAxis;
-
-                render_compas_dot(party.EconomicLeftRightAxis, party.AuthoritarianLibertarianAxis, party.VT100Color + (width < 30 ? "·" : "◯"));
+                Console.CursorLeft = left + x + 1;
+                Console.CursorTop = top + y + 1;
+                Console.Write(dot);
             }
 
-        render_compas_dot(lr_axis, al_axis, "\e[97m⬤");
+            double lr_axis = 0;
+            double al_axis = 0;
+
+            if (poll is { })
+                foreach (var party in Party.All)
+                {
+                    double perc = poll[party];
+
+                    lr_axis += perc * party.EconomicLeftRightAxis;
+                    al_axis += perc * party.AuthoritarianLibertarianAxis;
+
+                    render_compas_dot(party.EconomicLeftRightAxis, party.AuthoritarianLibertarianAxis, party.VT100Color + (width < 30 ? "*" : "◯"));
+                }
+
+            render_compas_dot(lr_axis, al_axis, "\e[97m⬤");
+        }
 
         return (width, height);
     }
@@ -610,7 +747,7 @@ public sealed class Renderer
 
         Console.CursorTop = top;
         Console.CursorLeft = left;
-        Console.Write("\e[0m" + party.Identifier.ToString().ToUpper());
+        Console.Write("\e[m" + party.Identifier.ToString().ToUpper());
 
         double percentage = poll?[party] ?? 0;
         string status = percentage switch
@@ -628,7 +765,7 @@ public sealed class Renderer
             status += "\e[90m◯";
 
         Console.CursorLeft = left + 5;
-        Console.Write($"\e[38;2;80;80;80m{new string('·', width)}\e[0m {percentage,6:P1}  {status}");
+        Console.Write($"\e[38;2;80;80;80m{new string('·', width)}\e[m {percentage,6:P1}  {status}");
 
         for (double d = 0; d <= 1; d += .125)
         {
@@ -671,7 +808,7 @@ public sealed class Renderer
 
         Console.ForegroundColor = ConsoleColor.Gray;
         Console.Write('(');
-        Console.Write(coalition?.CoalitionParties?.Select(party => party.VT100Color + party.Identifier.ToString().ToUpper() + "\e[0m").StringJoin(", "));
+        Console.Write(coalition?.CoalitionParties?.Select(party => party.VT100Color + party.Identifier.ToString().ToUpper() + "\e[m").StringJoin(", "));
         Console.ForegroundColor = ConsoleColor.Gray;
         Console.Write(')');
 
@@ -690,57 +827,74 @@ public sealed class Renderer
 
     public void HandleInput(ConsoleKeyInfo key)
     {
-        switch (key.Key)
+        RenderInvalidation process()
         {
-            case KEY_VIEW_SWITCH:
-                int dir = key.Modifiers.HasFlag(ConsoleModifiers.Shift) ? -1 : 1;
-                int count = Enum.GetValues<Views>().Length;
+            switch (key.Key)
+            {
+                case KEY_VIEW_SWITCH:
+                    int dir = key.Modifiers.HasFlag(ConsoleModifiers.Shift) ? -1 : 1;
+                    int count = Enum.GetValues<Views>().Length;
 
-                _current_view = (Views)(((int)_current_view + dir + count) % count);
+                    _current_view = (Views)(((int)_current_view + dir + count) % count);
 
-                break;
-            case KEY_STATE_NEXT:
-                _state_cursor = _state_cursor_values[(_state_cursor_values.IndexOf(_state_cursor) + 1) % _state_cursor_values.Length];
+                    // TODO : invalidate source and target view
 
-                break;
-            case KEY_STATE_PREV:
-                _state_cursor = _state_cursor_values[(_state_cursor_values.IndexOf(_state_cursor) - 1 + _state_cursor_values.Length) % _state_cursor_values.Length];
+                    return RenderInvalidation.FrameText;
+                case KEY_STATE_NEXT when _current_view is Views.States:
+                    _state_cursor = _state_cursor_values[(_state_cursor_values.IndexOf(_state_cursor) + 1) % _state_cursor_values.Length];
 
-                break;
-            case KEY_STATE_DOWN: // TODO : implement
-                break;
-            case KEY_STATE_UP: // TODO : implement
-                break;
-            case KEY_STATE_ENTER:
-                if (_state_cursor is StateCursorPosition.Invert)
-                    foreach (State state in _state_values)
-                        _selected_states[state] ^= true;
-                else if (_state_values.Contains((State)_state_cursor))
-                    _selected_states[(State)_state_cursor] ^= true;
-                else
-                {
-                    State[] target_states = _state_cursor switch
+                    return RenderInvalidation.StateSelector;
+                case KEY_STATE_PREV when _current_view is Views.States:
+                    _state_cursor = _state_cursor_values[(_state_cursor_values.IndexOf(_state_cursor) - 1 + _state_cursor_values.Length) % _state_cursor_values.Length];
+
+                    return RenderInvalidation.StateSelector;
+                case KEY_STATE_DOWN when _current_view is Views.States: // TODO : implement
+                    return RenderInvalidation.StateSelector;
+                case KEY_STATE_UP when _current_view is Views.States: // TODO : implement
+                    return RenderInvalidation.StateSelector;
+                case KEY_STATE_ENTER when _current_view is Views.States:
+                    if (_state_cursor is StateCursorPosition.Invert)
+                        foreach (State state in _state_values)
+                            _selected_states[state] ^= true;
+                    else if (_state_values.Contains((State)_state_cursor))
                     {
-                        StateCursorPosition.Federal => _state_values,
-                        StateCursorPosition.Deselect => [],
-                        StateCursorPosition.West => _state_values_west_ger,
+                        _selected_states[(State)_state_cursor] ^= true;
+
+                        if (_state_cursor is StateCursorPosition.BE)
+                            _selected_states[State.BE_W] =
+                            _selected_states[State.BE_O] = _selected_states[State.BE];
+                    }
+                    else
                     {
-                        StateCursorPosition.North => _state_values_north_ger,
-                        StateCursorPosition.South => _state_values_south_ger,
-                        StateCursorPosition.Population => _state_values_pop,
-                        StateCursorPosition.PopulationGrowth => _state_values_pop_growth,
-                        StateCursorPosition.Economy => _state_values_lfa,
+                        State[] target_states = _state_cursor switch
+                        {
+                            StateCursorPosition.Federal => _state_values,
+                            StateCursorPosition.Deselect => [],
+                            StateCursorPosition.West => _state_values_west_ger,
                             StateCursorPosition.East => _state_values_east_ger,
+                            StateCursorPosition.North => _state_values_north_ger,
+                            StateCursorPosition.South => _state_values_south_ger,
+                            StateCursorPosition.Population => _state_values_pop,
+                            StateCursorPosition.PopulationGrowth => _state_values_pop_growth,
+                            StateCursorPosition.Economy => _state_values_lfa,
+                        };
 
-                    foreach (State state in _state_values)
-                        _selected_states[state] = target_states.Contains(state);
-                }
+                        foreach (State state in _state_values)
+                            _selected_states[state] = target_states.Contains(state);
+                    }
 
-                break;
-            default:
-                return;
+                    return RenderInvalidation.StateSelector
+                         | RenderInvalidation.Map
+                         | RenderInvalidation.PollResults
+                         | RenderInvalidation.HistoricPlot
+                         | RenderInvalidation.Coalitions
+                         | RenderInvalidation.Compass;
+                default:
+                    return RenderInvalidation.None;
+            }
         }
 
+        Invalidate(process());
         Render(false);
     }
 }
@@ -777,3 +931,7 @@ public enum StateCursorPosition
     SH = State.SH,
     TH = State.TH,
 }
+
+
+// TODO : dark/light mode switch
+// TODO : UTF-8/ASCII mode switch
