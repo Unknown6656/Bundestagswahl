@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Text;
 using System.Linq;
@@ -36,10 +36,11 @@ public sealed class Renderer
     private static readonly State[] _state_values = Enum.GetValues<State>();
     private static readonly State[] _state_values_lfa = [State.BW, State.BY, State.HE, State.HH];
     private static readonly State[] _state_values_pop_growth = [State.BY, State.BW, State.HE, State.RP, State.NW, State.NI, State.HH, State.SH, State.BE];
-    private static readonly State[] _state_values_pop = [State.NW, State.BY, State.BW]; // (NI)
+    private static readonly State[] _state_values_pop = [State.NW, State.BY, State.BW, State.NI];
     private static readonly State[] _state_values_north_ger = [State.HB, State.HH, State.MV, State.NI, State.SH];
     private static readonly State[] _state_values_south_ger = [State.BW, State.BY, State.HE, State.RP, State.SL];
-    private static readonly State[] _state_values_west_ger = [State.BW, State.BY, State.HB, State.HH, State.HE, State.NI, State.NW, State.RP, State.SL, State.SH];
+    private static readonly State[] _state_values_west_ger = [State.BW, State.BY, State.HB, State.HH, State.HE, State.NI, State.NW, State.RP, State.SL, State.SH, State.BE_W];
+    private static readonly State[] _state_values_east_ger = [State.BB, State.MV, State.SN, State.ST, State.TH, State.BE_O];
 
     #endregion
 
@@ -205,6 +206,8 @@ public sealed class Renderer
 
         if (_state_values.All(s => states.Contains(s)))
             states.Add(null);
+        else if (states.Contains(State.BE))
+            states.AddRange([State.BE_W, State.BE_O]);
 
         Poll[] filtered = Polls.Polls.Where(p => p.Date >= _start_date
                                               && p.Date <= _end_date
@@ -391,9 +394,14 @@ public sealed class Renderer
         Console.ResetColor();
         Console.ForegroundColor = ConsoleColor.White;
 
-        Map.RenderToConsole(new(
-            _state_values.ToDictionary(LINQ.id, s => _selected_states[s] ? coloring.States[s] : ("\e[90m", '·'))
-        ), 2, 2);
+        HashSet<State> selected_states = [..from kvp in _selected_states
+                                            where kvp.Value
+                                            select kvp.Key];
+
+        if (selected_states.Contains(State.BE_W) && selected_states.Contains(State.BE_O))
+            selected_states.Add(State.BE);
+        else
+            selected_states.Remove(State.BE);
 
         int sel_width = Map.Width / 8;
 
@@ -415,8 +423,8 @@ public sealed class Renderer
                 StateCursorPosition.Population => "BEV.",
                 StateCursorPosition.PopulationGrowth => "BEV+",
                 StateCursorPosition.Economy => "LFA+",
-                _ => state.ToString(),
-            };
+                    StateCursorPosition.BE_O => "O-BE",
+                    StateCursorPosition.BE_W => "W-BE",
 
             Console.ForegroundColor = ConsoleColor.White;
             Console.CursorTop = y;
@@ -716,13 +724,13 @@ public sealed class Renderer
                         StateCursorPosition.Federal => _state_values,
                         StateCursorPosition.Deselect => [],
                         StateCursorPosition.West => _state_values_west_ger,
-                        StateCursorPosition.East => [.._state_values.Except(_state_values_west_ger)],
+                    {
                         StateCursorPosition.North => _state_values_north_ger,
                         StateCursorPosition.South => _state_values_south_ger,
                         StateCursorPosition.Population => _state_values_pop,
                         StateCursorPosition.PopulationGrowth => _state_values_pop_growth,
                         StateCursorPosition.Economy => _state_values_lfa,
-                    };
+                            StateCursorPosition.East => _state_values_east_ger,
 
                     foreach (State state in _state_values)
                         _selected_states[state] = target_states.Contains(state);
@@ -753,6 +761,8 @@ public enum StateCursorPosition
     BW = State.BW,
     BY = State.BY,
     BE = State.BE,
+    BE_O = State.BE_O,
+    BE_W = State.BE_W,
     BB = State.BB,
     HB = State.HB,
     HH = State.HH,

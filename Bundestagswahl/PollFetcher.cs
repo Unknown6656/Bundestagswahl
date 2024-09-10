@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 using System.Collections.ObjectModel;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -672,6 +672,14 @@ public sealed partial class PollFetcher(FileInfo cachefile)
 
                 break;
             }
+
+        if (source_uri.Contains("berlin", StringComparison.OrdinalIgnoreCase))
+            if (source_uri.Contains("ost", StringComparison.OrdinalIgnoreCase) || source_uri.Contains("east", StringComparison.OrdinalIgnoreCase))
+                state = State.BE_O;
+            else if (source_uri.Contains("west", StringComparison.OrdinalIgnoreCase))
+                state = State.BE_W;
+            else
+                state = State.BE;
 
         foreach (HtmlNode table in tables)
         {
