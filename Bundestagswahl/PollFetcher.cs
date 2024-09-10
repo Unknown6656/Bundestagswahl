@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using System.Collections.ObjectModel;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -374,11 +374,11 @@ public sealed class MergedPoll
 
     public Party StrongestParty { get; }
 
-    public DateTime EarliestPoll { get; }
+    public DateTime EarliestDate { get; }
 
-    public DateTime LatestPoll { get; }
+    public DateTime LatestDate { get; }
 
-    DateTime IPoll.Date => LatestPoll;
+    DateTime IPoll.Date => LatestDate;
 
     internal IReadOnlyDictionary<Party, double> Results { get; }
 
@@ -392,8 +392,8 @@ public sealed class MergedPoll
         if (polls.Length > 0)
         {
             States = polls.SelectWhere(p => p.State.HasValue, p => p.State!.Value).Distinct().ToArray();
-            EarliestPoll = polls.Min(p => p.Date);
-            LatestPoll = polls.Max(p => p.Date);
+            EarliestDate = polls.Min(p => p.Date);
+            LatestDate = polls.Max(p => p.Date);
 
             Dictionary<Party, double> results = [];
             double total = 0;
@@ -425,21 +425,22 @@ public sealed class MergedPoll
         else
         {
             States = [];
-            EarliestPoll =
-            LatestPoll = DateTime.UtcNow;
+            EarliestDate =
+            LatestDate = DateTime.UtcNow;
             Results = Party.All.ToDictionary(LINQ.id, p => 0d);
             StrongestParty = Party.__OTHER__;
         }
     }
 
     public override string ToString() =>
-        $"{EarliestPoll:yyyy-MM-dd}-{LatestPoll:yyyy-MM-dd}, {States.Select(s => s.ToString() ?? "BUND").StringJoin(", ")} {Results.Select(kvp => $", {kvp.Key.Identifier}={kvp.Value:P1}").StringConcat()} ({Polls.Length} polls)";
+        $"{EarliestDate:yyyy-MM-dd}-{LatestDate:yyyy-MM-dd}, {States.Select(s => s.ToString() ?? "BUND").StringJoin(", ")} {Results.Select(kvp => $", {kvp.Key.Identifier}={kvp.Value:P1}").StringConcat()} ({Polls.Length} polls)";
 
     public static implicit operator Poll[](MergedPoll poll) => poll.Polls;
 
     public static implicit operator MergedPoll(Poll[] polls) => new(polls);
 }
 
+// TODO : check whether we need this class or if we can merge its functionality into "PollHistory"
 public sealed class PollResult(IEnumerable<Poll> polls)
 {
     public static PollResult Empty { get; } = new([]);
@@ -449,19 +450,19 @@ public sealed class PollResult(IEnumerable<Poll> polls)
     public Poll[] Polls { get; } = [.. polls.OrderByDescending(p => p.Date)];
 
 
-    public Poll? MostRecent() => Polls.FirstOrDefault();
+    //public Poll? MostRecent() => Polls.FirstOrDefault();
 
-    public Poll[] MostRecent(int count) => Polls.Take(count).ToArray();
+    //public Poll[] MostRecent(int count) => Polls.Take(count).ToArray();
 
-    public Poll? MostRecent(State? state) => Polls.Where(p => p.State == state).FirstOrDefault();
+    //public Poll? MostRecent(State? state) => Polls.Where(p => p.State == state).FirstOrDefault();
 
-    public Poll[] MostRecent(State? state, int count) => Polls.Where(p => p.State == state).Take(count).ToArray();
+    //public Poll[] MostRecent(State? state, int count) => Polls.Where(p => p.State == state).Take(count).ToArray();
 
-    public Poll[] In(State? state) => Polls.Where(p => p.State == state).ToArray();
+    //public Poll[] In(State? state) => Polls.Where(p => p.State == state).ToArray();
 
-    public Poll[] During(DateTime earliest, DateTime latest) => Polls.Where(p => p.Date >= earliest && p.Date <= latest).ToArray();
+    //public Poll[] During(DateTime earliest, DateTime latest) => Polls.Where(p => p.Date >= earliest && p.Date <= latest).ToArray();
 
-    public Poll[] During(DateTime earliest, DateTime latest, State state) => Polls.Where(p => p.Date >= earliest && p.Date <= latest && p.State == state).ToArray();
+    //public Poll[] During(DateTime earliest, DateTime latest, State state) => Polls.Where(p => p.Date >= earliest && p.Date <= latest && p.State == state).ToArray();
 
     public string AsCSV()
     {
@@ -485,14 +486,52 @@ public sealed class PollResult(IEnumerable<Poll> polls)
         Party[] parties = Party.All;
         StringBuilder sb = new();
 
-        sb.AppendLine($"id,date,pollster,source,{parties.Select(p => p.Identifier).StringJoin(",")}");
+        sb.AppendLine($"id,date,pollster,source,state,{parties.Select(p => p.Identifier).StringJoin(",")}");
 
         for (int i = 0; i < Polls.Length; i++)
         {
             Poll poll = Polls[i];
 
-            if (poll.State == state)
-                sb.AppendLine($"{i},{poll.Date:yyyy-MM-dd},\"{poll.Pollster}\",\"{poll.SourceURI}\",{parties.Select(p => poll[p].ToString("P1")).StringJoin(",")}");
+            if (poll.State == state || (state is State.BE && poll.State is State.BE_W or State.BE_O))
+                sb.AppendLine($"{i},{poll.Date:yyyy-MM-dd},\"{poll.Pollster}\",\"{poll.SourceURI}\",{poll.State},{parties.Select(p => poll[p].ToString("P1")).StringJoin(",")}");
+        }
+
+        return sb.ToString();
+    }
+}
+
+public sealed class PollHistory(IEnumerable<MergedPoll> polls)
+{
+    public static PollHistory Empty { get; } = new([]);
+
+
+    public int PollCount => Polls.Length;
+
+    public MergedPoll[] Polls { get; } = [.. polls.OrderByDescending(p => p.LatestDate)];
+
+    public MergedPoll? MostRecentPoll => Polls.FirstOrDefault();
+
+    public MergedPoll? OldestPoll => Polls.LastOrDefault();
+
+
+
+
+
+    public string AsCSV()
+    {
+        Party[] parties = Party.All;
+        StringBuilder sb = new();
+
+        sb.AppendLine($"id,start,end,pollsters,sources,states,{parties.Select(p => p.Identifier).StringJoin(",")}");
+
+        for (int i = 0; i < Polls.Length; i++)
+        {
+            MergedPoll merged = Polls[i];
+            string pollsters = merged.Polls.Select(p => p.Pollster).Distinct().StringJoin(";");
+            string sources = merged.Polls.Select(p => p.SourceURI).Distinct().StringJoin(";");
+            string states = merged.Polls.Select(p => p.State?.ToString() ?? "DE").Distinct().StringJoin(";");
+
+            sb.AppendLine($"{i},{merged.EarliestDate:yyyy-MM-dd},{merged.LatestDate:yyyy-MM-dd},\"{pollsters}\",\"{sources}\",{states},{parties.Select(p => merged[p].ToString("P1")).StringJoin(",")}");
         }
 
         return sb.ToString();
