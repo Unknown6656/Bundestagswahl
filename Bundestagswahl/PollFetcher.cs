@@ -347,6 +347,7 @@ public sealed class Poll
 public sealed class MergedPoll
     : IPoll
 {
+    private const double EAST_BERLIN_PERCENTAGE = .37516441883;
     private static readonly Dictionary<State, int> _population_per_state = new()
     {
         [State.BW] = 11_280_000,
@@ -374,6 +375,12 @@ public sealed class MergedPoll
 
     public Party StrongestParty { get; }
 
+    public (Party party, double percentage)[] Percentages => [..from party in Party.All
+                                                                let perc = this[party]
+                                                                where perc > 0
+                                                                orderby perc descending
+                                                                select (party, perc)];
+
     public DateTime EarliestDate { get; }
 
     public DateTime LatestDate { get; }
@@ -384,6 +391,14 @@ public sealed class MergedPoll
 
     public double this[Party p] => Results.ContainsKey(p) ? Results[p] : 0;
 
+
+    static MergedPoll()
+    {
+        int be = _population_per_state[State.BE];
+
+        _population_per_state[State.BE_O] = (int)(be * EAST_BERLIN_PERCENTAGE);
+        _population_per_state[State.BE_W] = be - _population_per_state[State.BE_O];
+    }
 
     public MergedPoll(params Poll[] polls)
     {
@@ -514,8 +529,7 @@ public sealed class PollHistory(IEnumerable<MergedPoll> polls)
     public MergedPoll? OldestPoll => Polls.LastOrDefault();
 
 
-
-
+    public MergedPoll? GetMostRecentAt(DateTime date) => Polls.SkipWhile(p => p.LatestDate > date).FirstOrDefault();
 
     public string AsCSV()
     {
