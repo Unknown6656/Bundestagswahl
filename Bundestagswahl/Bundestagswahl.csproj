@@ -1,6 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
-        <TargetFramework>net8.0</TargetFramework>
+        <TargetFramework>net9.0</TargetFramework>
 
         <LangVersion>preview</LangVersion>
         <EnablePreviewFeatures>True</EnablePreviewFeatures>
@@ -56,9 +56,9 @@
       <Content Include="_old_codebase.cs" />
     </ItemGroup>
     <ItemGroup>
-        <PackageReference Include="HtmlAgilityPack" Version="1.11.65" />
+        <PackageReference Include="HtmlAgilityPack" Version="1.11.66" />
         <PackageReference Include="Unknown6656.Generics" Version="1.0.15" />
-        <PackageReference Include="Unknown6656.Runtime" Version="1.0.4" />
+        <PackageReference Include="Unknown6656.Console" Version="1.0.134.8816" />
     </ItemGroup>
     <ItemGroup>
         <None Include="favicon.ico">
