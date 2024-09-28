@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <TargetFramework>net9.0</TargetFramework>
 
@@ -53,6 +53,7 @@
         <PackageReference Include="HtmlAgilityPack" Version="1.11.66" />
         <PackageReference Include="Unknown6656.Generics" Version="1.0.15" />
         <PackageReference Include="Unknown6656.Console" Version="1.0.134.8816" />
+        <PackageReference Include="Unknown6656.Runtime" Version="1.1.2" />
     </ItemGroup>
     <ItemGroup>
         <None Include="favicon.ico">

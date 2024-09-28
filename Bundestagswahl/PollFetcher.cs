@@ -754,7 +754,7 @@ public sealed partial class PollFetcher(FileInfo cachefile)
                         participant_index = index;
                 }
 
-            foreach (HtmlNode row in table.SelectNodes("tbody/tr"))
+            foreach (HtmlNode row in table.SelectNodes("*/tr")?.Where(row => row.ParentNode.Name is "table" or "tbody") ?? [])
             {
                 List<HtmlNode> cells = new(toprow.Count);
 
