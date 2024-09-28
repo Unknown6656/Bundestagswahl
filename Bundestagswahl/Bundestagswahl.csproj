@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <TargetFramework>net9.0</TargetFramework>
 
@@ -49,12 +49,6 @@
         <AssemblyVersion>$([System.IO.File]::ReadAllText("$(SolutionDir)version.txt"))</AssemblyVersion>
         -->
     </PropertyGroup>
-    <ItemGroup>
-      <Compile Remove="_old_codebase.cs" />
-    </ItemGroup>
-    <ItemGroup>
-      <Content Include="_old_codebase.cs" />
-    </ItemGroup>
     <ItemGroup>
         <PackageReference Include="HtmlAgilityPack" Version="1.11.66" />
         <PackageReference Include="Unknown6656.Generics" Version="1.0.15" />

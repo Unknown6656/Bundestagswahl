@@ -745,7 +745,6 @@ public sealed class Renderer
 
         RenderButton(left, 13, null, "DATEN AKTUALISIEREN", "\e[m", false, false);
 
-        Console.Write();
     }
 
     private void RenderResults(int width, int height, int timeplot_height, IPoll? poll)
