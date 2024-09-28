@@ -272,6 +272,9 @@ public class Map
 
     public override string ToString() => $"{_width} x {_height}";
 
+
+    // TODO : implement rendering using braille characters for outside borders
+
     public void RenderToConsole(MapColoring coloring, int left = 0, int top = 0)
     {
         Console.ResetColor();

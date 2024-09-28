@@ -1,7 +1,11 @@
-﻿using Bundestagswahl;
+﻿global using Console = Unknown6656.Console.Console;
+global using ConsoleColor = Unknown6656.Console.ConsoleColor;
+
 using System;
 
-using Unknown6656.Runtime.Console;
+using Unknown6656.Console;
+
+using Bundestagswahl;
 
 
 
@@ -33,7 +37,6 @@ while (Console.ReadKey(true) is { Key: not ConsoleKey.Escape } key)
 
 resize.Stop();
 
-Console.CursorTop = Console.WindowHeight - 1;
-Console.CursorLeft = Console.WindowWidth - 1;
+Console.SetCursorPosition(Console.WindowWidth - 1, Console.WindowHeight - 1);
 Console.WriteLine();
 Console.ResetColor();

@@ -4,9 +4,9 @@ using System.Text;
 using System.Linq;
 using System;
 
-using Unknown6656.Runtime.Console;
-using Unknown6656.Runtime;
 using Unknown6656.Generics;
+using Unknown6656.Runtime;
+using Unknown6656.Console;
 using Unknown6656.Common;
 
 namespace Bundestagswahl;
@@ -149,14 +149,14 @@ public sealed class Renderer
 
     public Renderer()
     {
-        _console_state = ConsoleExtensions.SaveConsoleState();
+        _console_state = Console.CurrentConsoleState;
 
         InvalidateAll();
 
-        ConsoleExtensions.ClearAndResetAll();
+        Console.HardResetAndFullClear();
         Console.OutputEncoding = Encoding.UTF8;
         Console.InputEncoding = Encoding.UTF8;
-        ConsoleExtensions.CursorVisible = false;
+        Console.CursorVisible = false;
 
         PollFetcher = new(new(CACHE_FILE));
     }
@@ -178,7 +178,7 @@ public sealed class Renderer
     {
         IsActive = false;
 
-        ConsoleExtensions.RestoreConsoleState(_console_state);
+        Console.CurrentConsoleState = _console_state;
     }
 
     public void Render(bool clear)
@@ -186,7 +186,7 @@ public sealed class Renderer
         if (clear)
         {
             InvalidateAll();
-            ConsoleExtensions.FullClear();
+            Console.FullClear();
         }
 
         (int min_width, int min_height) = _min_sizes[_render_size];
@@ -206,8 +206,12 @@ public sealed class Renderer
             if (_render_size is RenderSize.Small)
             {
                 InvalidateAll();
-                ConsoleExtensions.FullClear();
-                Console.Write("\e[91;1m");
+                Console.FullClear();
+                Console.CurrentGraphicRendition = new()
+                {
+                    ForegroundColor = ConsoleColor.Red,
+                    Intensity = TextIntensityMode.Bold,
+                };
                 Console.WriteLine($"""
                  ┌─────────────────────────────────────────────┐
                  │    ⚠️ ⚠️ CONSOLE WINDOW TOO SMALL ⚠️ ⚠️     │
@@ -713,8 +717,9 @@ public sealed class Renderer
         if (!_invalidate.HasFlag(RenderInvalidation.DataSource))
             return;
 
-        Console.Write("\e[0;90m");
-        ConsoleExtensions.WriteBlock($"""
+        Console.ResetGraphicRenditions();
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteBlock($"""
         {Polls?.Polls?.Length ?? 0} Umfragen zwischen   
         {_start_date:yyyy-MM-dd} und {_end_date:yyyy-MM-dd}
         verfügbar.
@@ -853,7 +858,7 @@ public sealed class Renderer
             double al_axis = 0;
 
             if (poll is { })
-                foreach (var party in Party.All)
+                foreach (Party party in Party.All)
                 {
                     double perc = poll[party];
 
