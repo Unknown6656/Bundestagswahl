@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Text;
 using System.Linq;
@@ -193,8 +193,11 @@ public sealed class Renderer
         int width = Console.WindowWidth;
         int height = Console.WindowHeight;
 
-        Console.ForegroundColor = ConsoleColor.White;
-        Console.BackgroundColor = ConsoleColor.Black;
+        Console.CurrentGraphicRendition = new()
+        {
+            ForegroundColor = ConsoleColor.White,
+            BackgroundColor = ConsoleColor.Black,
+        };
 
         if (OS.IsWindows)
         {
@@ -206,13 +209,14 @@ public sealed class Renderer
             if (_render_size is RenderSize.Small)
             {
                 InvalidateAll();
+
                 Console.FullClear();
                 Console.CurrentGraphicRendition = new()
                 {
                     ForegroundColor = ConsoleColor.Red,
                     Intensity = TextIntensityMode.Bold,
                 };
-                Console.WriteLine($"""
+                Console.Write($"""
                  ┌─────────────────────────────────────────────┐
                  │    ⚠️ ⚠️ CONSOLE WINDOW TOO SMALL ⚠️ ⚠️     │
                  ├─────────────────────────────────────────────┤
@@ -237,7 +241,7 @@ public sealed class Renderer
             RenderHistoricPlot(width, timeplot_height, historic);
             RenderResults(width, height, timeplot_height, display);
 
-            Console.Write("\e[m");
+            Console.ResetGraphicRenditions();
 
             _invalidate = RenderInvalidation.None;
         }
@@ -292,7 +296,7 @@ public sealed class Renderer
     {
         (int x, int y) = RenderModalPrompt("Umfrageergebnisse werden geladen...\nBitte warten.", "\e[0;96m", "\e[0;36m");
 
-        Console.Write("\e[96m");
+        Console.ForegroundColor = ConsoleColor.Cyan;
 
         bool completed = false;
         using Task spinner = Task.Factory.StartNew(async delegate
@@ -311,13 +315,11 @@ public sealed class Renderer
             {
                 step = (step + 1) % TL.Length;
 
-                Console.CursorLeft = x + 4;
-                Console.CursorTop = y + 2;
+                Console.SetCursorPosition(x + 4, y + 2);
                 Console.Write(TL[step]);
                 Console.Write(TM[step]);
                 Console.Write(TR[step]);
-                Console.CursorLeft = x + 4;
-                Console.CursorTop = y + 3;
+                Console.SetCursorPosition(x + 4, y + 3);
                 Console.Write(BL[step]);
                 Console.Write(BM[step]);
                 Console.Write(BR[step]);
@@ -374,10 +376,11 @@ public sealed class Renderer
         int x = (width - prompt_width - 2) / 2;
         int y = (height - prompt.Length) / 2;
 
+        Console.Write(foreground.ToVT520(ColorMode.Foreground));
+
         for (int i = 0; i < prompt.Length; ++i)
         {
-            Console.CursorLeft = x;
-            Console.CursorTop = y + i;
+            Console.SetCursorPosition(x, y + i);
             Console.Write(prompt[i]);
         }
 
@@ -386,9 +389,16 @@ public sealed class Renderer
 
     private static void RenderTitle(int x, int y, string title, bool active)
     {
-        Console.CursorLeft = x;
-        Console.CursorTop = y;
-        Console.Write($" {(active ? "\e[1;4;91m" : "\e[96m")}{title}\e[22;24m ");
+        Console.SetCursorPosition(x, y);
+        Console.BackgroundColor = ConsoleColor.Default;
+        Console.Write(' ');
+        Console.WriteFormatted(title, new()
+        {
+            ForegroundColor = active ? ConsoleColor.Red : ConsoleColor.Cyan,
+            Underlined = active ? TextUnderlinedMode.Single : TextUnderlinedMode.NotUnderlined,
+            Intensity = active ? TextIntensityMode.Bold : TextIntensityMode.Regular,
+        });
+        Console.Write(' ');
     }
 
     private static void RenderFrameLine(int x, int y, int size, bool horizontal)
@@ -398,29 +408,26 @@ public sealed class Renderer
 
         if (horizontal)
         {
-            Console.CursorLeft = x;
-            Console.CursorTop = y;
+            Console.SetCursorPosition(x, y);
             Console.Write(line);
         }
         else
             for (int i = 0; i < size; ++i)
             {
-                Console.CursorLeft = x;
-                Console.CursorTop = y + i;
+                Console.SetCursorPosition(x, y + i);
                 Console.Write(line[i]);
             }
     }
 
     private static void RenderBox(int x, int y, int width, int height, bool clear, string color = "\e[0;97m")
     {
-        Console.CursorTop = y;
-        Console.CursorLeft = x;
+        Console.SetCursorPosition(x, y);
+        Console.CurrentGraphicRendition = ConsoleGraphicRendition.Default with
         Console.Write($"{color}┌{new string('─', width - 2)}┐");
 
         for (int i = 1; i < height - 1; ++i)
         {
-            Console.CursorTop = y + i;
-            Console.CursorLeft = x;
+            Console.SetCursorPosition(x, y + i);
 
             if (clear)
                 Console.Write($"│{new string(' ', width - 2)}│");
@@ -432,8 +439,7 @@ public sealed class Renderer
             }
         }
 
-        Console.CursorTop = y + height - 1;
-        Console.CursorLeft = x;
+        Console.SetCursorPosition(x, y + height - 1);
         Console.Write($"└{new string('─', width - 2)}┘");
     }
 
@@ -452,7 +458,11 @@ public sealed class Renderer
         width += 2;
 
         Console.SetCursorPosition(x, y);
-        Console.Write($"{color}{(active ? "\e[7m" : "")}{text}\e[27m");
+        Console.WriteFormatted(text, new()
+        {
+            ForegroundColor = color,
+            AreColorsInverted = active,
+        });
 
         RenderHoverUnderline(x, y + 1, width.Value, hover);
     }
@@ -511,10 +521,6 @@ public sealed class Renderer
     private void RenderMap()
     {
         MapColoring coloring = MapColoring.Default;
-
-        Console.ResetColor();
-        Console.ForegroundColor = ConsoleColor.White;
-
         HashSet<State> selected_states = [..from kvp in _selected_states
                                             where kvp.Value
                                             select kvp.Key];
@@ -530,9 +536,14 @@ public sealed class Renderer
         //    selected_states.Add(State.BE_O);
         //}
 
+        Console.CurrentGraphicRendition = ConsoleGraphicRendition.Default with
+        {
+            ForegroundColor = ConsoleColor.White
+        };
+
         if (_invalidate.HasFlag(RenderInvalidation.Map))
                 Map.RenderToConsole(new(
-                    _state_values.ToDictionary(LINQ.id, s => selected_states.Contains(s) ? (coloring.States[s].Color, 'X') : ("\e[90m", '·'))
+                    _state_values.ToDictionary(LINQ.id, s => selected_states.Contains(s) ? (coloring.States[s].Color, 'X') : (ConsoleColor.DarkGray, '·'))
                 ), 2, 2);
 
         int sel_width = Map.Width / 8;
@@ -624,11 +635,13 @@ public sealed class Renderer
 
         for (int y = 0; y <= graph_height; ++y)
         {
-            Console.CursorLeft = left + 2;
-            Console.CursorTop = 2 + y;
+            Console.SetCursorPosition(left + 2, 2 + y);
 
             if (y < graph_height)
-                Console.Write($"\e[m{(graph_height - y) * max_perc / graph_height,6:P1} ");
+            {
+                Console.ForegroundColor = ConsoleColor.Default;
+                Console.Write($"{(graph_height - y) * max_perc / graph_height,6:P1} ");
+            }
             else
                 Console.CursorLeft += 7;
 
@@ -639,12 +652,11 @@ public sealed class Renderer
         {
             double d = index * 9d / graph_width;
 
-            Console.CursorTop = graph_height + 2;
-            Console.CursorLeft = left + index * 9 + 9;
+            Console.SetCursorPosition(left + index * 9 + 9, graph_height + 2);
             Console.Write("\e[38;2;80;80;80m" + (index == 0 ? '├' : '┼'));
-            Console.CursorTop = graph_height + 3;
-            Console.CursorLeft = left + index * 9 + 6;
-            Console.Write($"\e[m{get_date(d):yyyy-MM}");
+            Console.SetCursorPosition(left + index * 9 + 9, graph_height + 3);
+            Console.ForegroundColor = ConsoleColor.Default;
+            Console.Write(get_date(d).ToString("yyyy-MM"));
         }
 
         Dictionary<Party, double> prev = Party.All.ToDictionary(LINQ.id, _ => 0d);
@@ -664,8 +676,7 @@ public sealed class Renderer
 
                 for (int y = 0; y < graph_height; ++y)
                 {
-                    Console.CursorTop = 2 + y;
-                    Console.CursorLeft = left + 9 + x;
+                    Console.SetCursorPosition(left + x + 9, y + 2);
                     Console.Write('│');
                 }
             }
