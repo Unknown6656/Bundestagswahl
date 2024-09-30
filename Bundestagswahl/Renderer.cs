@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Text;
 using System.Linq;
@@ -294,7 +294,7 @@ public sealed class Renderer
 
     public async Task<PollResult> RenderFetchingPrompt(Func<Task<PollResult>> task)
     {
-        (int x, int y) = RenderModalPrompt("Umfrageergebnisse werden geladen...\nBitte warten.", "\e[0;96m", "\e[0;36m");
+        (int x, int y) = RenderModalPrompt("Umfrageergebnisse werden geladen...\nBitte warten.", ConsoleColor.Blue, ConsoleColor.DarkBlue);
 
         Console.ForegroundColor = ConsoleColor.Cyan;
 
@@ -333,7 +333,7 @@ public sealed class Renderer
 
         await spinner;
 
-        RenderModalPrompt($"{result.PollCount} Umfrageergebnisse wurden erfolgreich geladen.\nZum Starten bitte eine beliebige Taste drücken.", "\e[0;92m", "\e[0;32m");
+        RenderModalPrompt($"{result.PollCount} Umfrageergebnisse wurden erfolgreich geladen.\nZum Starten bitte eine beliebige Taste drücken.", ConsoleColor.Green, ConsoleColor.DarkGreen);
 
         Console.ReadKey(true);
         Render(true);
@@ -341,29 +341,27 @@ public sealed class Renderer
         return result;
     }
 
-    private (int x, int y) RenderModalPrompt(string content, string foreground, string background)
+    private static (int x, int y) RenderModalPrompt(string content, ConsoleColor foreground, ConsoleColor background)
     {
         int width = Console.WindowWidth;
         int height = Console.WindowHeight;
 
-        Console.Write(background);
+        Console.Write(background.ToVT520(ColorMode.Foreground));
 
         for (int _y = 1; _y < height - 1; ++_y)
-        {
-            Console.CursorTop = _y;
-
             for (int _x = _y % 2 + 1; _x < width - 1; _x += 2)
             {
-                Console.CursorLeft = _x;
+                Console.SetCursorPosition(_x, _y);
                 Console.Write('/');
             }
-        }
 
         string[] prompt = content.SplitIntoLines();
         int prompt_width = prompt.Max(s => s.Length + 12);
 
         if (prompt.Length == 1)
             prompt = [prompt[0], ""];
+
+        // TODO : use RenderBox(...) ?
 
         prompt = [
             $"┌{new string('─', prompt_width)}┐",
@@ -419,11 +417,14 @@ public sealed class Renderer
             }
     }
 
-    private static void RenderBox(int x, int y, int width, int height, bool clear, string color = "\e[0;97m")
+    private static void RenderBox(int x, int y, int width, int height, bool clear, ConsoleColor line_color)
     {
         Console.SetCursorPosition(x, y);
         Console.CurrentGraphicRendition = ConsoleGraphicRendition.Default with
-        Console.Write($"{color}┌{new string('─', width - 2)}┐");
+        {
+            ForegroundColor = line_color
+        };
+        Console.Write($"┌{new string('─', width - 2)}┐");
 
         for (int i = 1; i < height - 1; ++i)
         {
@@ -443,7 +444,7 @@ public sealed class Renderer
         Console.Write($"└{new string('─', width - 2)}┘");
     }
 
-    private static void RenderButton(int x, int y, int? width, string text, string color, bool active, bool? hover)
+    private static void RenderButton(int x, int y, int? width, string text, ConsoleColor color, bool active, bool? hover)
     {
         text = text.Trim();
         width ??= text.Length + 4;
@@ -470,36 +471,42 @@ public sealed class Renderer
     private static void RenderDateSelector(int x, int y, string description, int width, DateTime? date, DateTime? min, DateTime? max, bool? hover)
     {
         width -= 15;
-        description = description.PadLeft(width);
+        description = description.PadLeft(width) + "  ";
 
         Console.SetCursorPosition(x, y);
-        Console.Write($"\e[m{description}  ");
-
-        if (hover ?? false)
-            Console.Write("\e[7m");
-
+        Console.ResetGraphicRenditions();
+        Console.Write(description);
+        Console.InvertedColors = hover ?? false;
         Console.Write(hover is true && date is { } && min is { } && date > min ? '<' : '[');
         Console.Write($" {date?.ToString("yyyy-MM-dd") ?? "xxxx-xx-xx"} ");
         Console.Write(hover is true && date is { } && max is { } && date < max ? '>' : ']');
-        Console.Write("\e[27m");
+        Console.InvertedColors = false;
 
-        RenderHoverUnderline(x + description.Length + 2, y + 1, 14, hover);
+        RenderHoverUnderline(x + description.Length, y + 1, 14, hover);
     }
 
-    private static void RenderHoverUnderline(int x, int y, int width, bool? hover = true)
+    private static void RenderHoverUnderline(int x, int y, int width, bool? hover = true, char underline_char = '^' /* '°' */)
     {
-        if (hover is bool h)
-        {
-            Console.SetCursorPosition(x, y);
-            Console.Write(h ? $"\e[5;90m{new(/*'°'*/'^', width)}\e[25m" : new(' ', width));
-        }
+        if (hover is null)
+            return;
+
+        Console.SetCursorPosition(x, y);
+
+        if (hover is false)
+            Console.Write(new string(' ', width));
+        else
+            Console.WriteFormatted(new string(underline_char, width), new()
+            {
+                Blink = TextBlinkMode.Slow,
+                ForegroundColor = ConsoleColor.Gray,
+            });
     }
 
     private void RenderFrame(int width, int height, int timeplot_height, bool clear)
     {
         if (_invalidate.HasFlag(RenderInvalidation.FrameBorder))
         {
-            RenderBox(0, 0, width, height, clear);
+            RenderBox(0, 0, width, height, clear, ConsoleColor.Gray);
 
             RenderFrameLine(Map.Width + 3, 0, height, false);
             RenderFrameLine(0, Map.Height + 3, Map.Width + 4, true);
@@ -598,7 +605,7 @@ public sealed class Renderer
 
                 bool hovered = cursor == _state_cursor && _current_view == Views.States;
 
-                RenderButton(x, y, 6, txt, _selected_states.ContainsKey(state) ? coloring.States[state].Color : "\e[97m", active, hovered);
+                RenderButton(x, y, 6, txt, _selected_states.ContainsKey(state) ? coloring.States[state].Color : ConsoleColor.White, active, hovered);
             }
     }
 
@@ -645,7 +652,8 @@ public sealed class Renderer
             else
                 Console.CursorLeft += 7;
 
-            Console.Write($"\e[38;2;80;80;80m{(y == 0 ? '┬' : y == graph_height ? '├' : '┼')}{new string(y == graph_height ? '─' : '·', graph_width)}");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write($"{(y == 0 ? '┬' : y == graph_height ? '├' : '┼')}{new string(y == graph_height ? '─' : '·', graph_width)}");
         }
 
         for (int index = 0, columns = graph_width / 9; index <= columns; ++index)
@@ -653,7 +661,8 @@ public sealed class Renderer
             double d = index * 9d / graph_width;
 
             Console.SetCursorPosition(left + index * 9 + 9, graph_height + 2);
-            Console.Write("\e[38;2;80;80;80m" + (index == 0 ? '├' : '┼'));
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write(index == 0 ? '├' : '┼');
             Console.SetCursorPosition(left + index * 9 + 9, graph_height + 3);
             Console.ForegroundColor = ConsoleColor.Default;
             Console.Write(get_date(d).ToString("yyyy-MM"));
@@ -672,7 +681,7 @@ public sealed class Renderer
             {
                 dateselector = DateTime.MaxValue;
 
-                Console.Write(poll?.StrongestParty.VT100Color ?? "\e[97m");
+                Console.ForegroundColor = poll?.StrongestParty.Color ?? ConsoleColor.White;
 
                 for (int y = 0; y < graph_height; ++y)
                 {
@@ -689,7 +698,7 @@ public sealed class Renderer
 
                     Console.CursorTop = 2 + y;
                     Console.CursorLeft = left + 9 + x;
-                    Console.Write(party.VT100Color);
+                    Console.Write(party.Color);
 
                     if (current)
                         Console.Write("⬤"); // *⬤◯
@@ -754,7 +763,7 @@ public sealed class Renderer
         {
         }
 
-        RenderButton(left, 13, null, "DATEN AKTUALISIEREN", "\e[m", false, false);
+        RenderButton(left, 13, null, "DATEN AKTUALISIEREN", ConsoleColor.Default, false, false);
 
     }
 
@@ -768,16 +777,16 @@ public sealed class Renderer
 
         if (_invalidate.HasFlag(RenderInvalidation.PollResults))
         {
-            Console.CursorTop = top;
-            Console.CursorLeft = left;
+            Console.SetCursorPosition(left, top);
+            Console.ResetGraphicRenditions();
 
             if (poll is { })
             {
-                Console.Write($"\e[mUmfrageergebnis am {poll.Date:yyyy-MM-dd} für: ");
+                Console.Write($"Umfrageergebnis am {poll.Date:yyyy-MM-dd} für: ");
                 Console.Write(string.Join(", ", from kvp in _selected_states
                                                 where kvp.Value
                                                 let color = MapColoring.Default.States[kvp.Key].Color
-                                                select $"{color}{kvp.Key}\e[m"));
+                                                select $"{color.ToVT520(ColorMode.Foreground)}{kvp.Key}{ConsoleColor.Default.ToVT520(ColorMode.Foreground)}"));
 
                 if (Console.WindowWidth - 2 - Console.CursorLeft is int cw and > 0)
                     Console.Write(new string(' ', cw));
@@ -791,9 +800,9 @@ public sealed class Renderer
 
         if (_invalidate.HasFlag(RenderInvalidation.Compass))
         {
-            Console.CursorTop = top;
-            Console.CursorLeft = left;
-            Console.Write("\e[mPolitischer Kompass:");
+            Console.SetCursorPosition(left, top);
+            Console.ForegroundColor = ConsoleColor.Default;
+            Console.Write("Politischer Kompass:");
         }
 
         int vertical_space = height + timeplot_height - top;
@@ -803,9 +812,9 @@ public sealed class Renderer
         {
             coalition_x += 6;
 
-            Console.CursorTop = top;
-            Console.CursorLeft = left + coalition_x;
-            Console.Write("\e[mKoalitionsmöglichkeiten:");
+            Console.SetCursorPosition(left + coalition_x, top);
+            Console.ForegroundColor = ConsoleColor.Default;
+            Console.Write("Koalitionsmöglichkeiten:");
 
             Coalition[] coalitions = poll is { } ? Coalitions.Select(parties => new Coalition(poll, parties))
                                                              .Where(c => c.CoalitionParties.Length >= 1) // filter coalitions where all other parties are < 5%
@@ -819,8 +828,7 @@ public sealed class Renderer
 
             for (int i = coalitions.Length; i < vertical_space - 2; ++i)
             {
-                Console.CursorTop = top + i + 2;
-                Console.CursorLeft = left + coalition_x;
+                Console.SetCursorPosition(left + coalition_x, top + i + 2);
                 Console.Write(new string(' ', width - coalition_x - 5));
             }
         }
@@ -835,32 +843,31 @@ public sealed class Renderer
 
         if (_invalidate.HasFlag(RenderInvalidation.Compass))
         {
-            RenderBox(left, top, width, height, false, "\e[90m");
+            RenderBox(left, top, width, height, false, ConsoleColor.DarkGray);
 
-            Console.Write("\e[38;2;80;80;80m");
+            Console.ForegroundColor = ConsoleColor.Gray;
 
             for (int y = 1; y < height - 1; ++y)
                 for (int x = 1; x < width - 1; ++x)
                 {
-                    Console.CursorLeft = left + x;
-                    Console.CursorTop = top + y;
-                    Console.Write(y == height / 2 || x == width / 2 ? "\e[90m" : "\e[38;2;80;80;80m");
+                    Console.SetCursorPosition(left + x, top + y);
+                    Console.ForegroundColor = y == height / 2 || x == width / 2 ? ConsoleColor.Gray : ConsoleColor.DarkGray;
                     Console.Write((x % 4, y % 2) switch
                     {
-                        (0, 0) => '+',
-                        (_, 0) => '-',
-                        (0, 1) => '¦',
+                        (0, 0) => '+', // TODO : switch to unicode dashed equivalent
+                        (_, 0) => '-', // TODO : switch to unicode dashed equivalent
+                        (0, 1) => '¦', // TODO : switch to unicode dashed equivalent
                         _ => ' ',
                     });
                 }
 
-            void render_compas_dot(double lr, double al, string dot)
+            void render_compas_dot(double lr, double al, ConsoleColor color, string dot)
             {
                 int x = (int)Math.Round((double.Clamp(lr, -1, 1) + 1) * .5 * (width - 3));
                 int y = (int)Math.Round((double.Clamp(al, -1, 1) + 1) * .5 * (height - 3));
 
-                Console.CursorLeft = left + x + 1;
-                Console.CursorTop = top + y + 1;
+                Console.SetCursorPosition(left + x + 1, top + y + 1);
+                Console.ForegroundColor = color;
                 Console.Write(dot);
             }
 
@@ -875,10 +882,10 @@ public sealed class Renderer
                     lr_axis += perc * party.EconomicLeftRightAxis;
                     al_axis += perc * party.AuthoritarianLibertarianAxis;
 
-                    render_compas_dot(party.EconomicLeftRightAxis, party.AuthoritarianLibertarianAxis, party.VT100Color + (width < 30 ? "*" : "◯"));
+                    render_compas_dot(party.EconomicLeftRightAxis, party.AuthoritarianLibertarianAxis, party.Color, width < 30 ? "*" : "◯");
                 }
 
-            render_compas_dot(lr_axis, al_axis, "\e[97m⬤");
+            render_compas_dot(lr_axis, al_axis, ConsoleColor.White, "⬤");
         }
 
         return (width, height);
@@ -888,8 +895,8 @@ public sealed class Renderer
     {
         width -= 21;
 
-        Console.CursorTop = top;
-        Console.CursorLeft = left;
+        Console.ResetGraphicRenditions();
+        Console.SetCursorPosition(left, top);
         Console.Write("\e[m" + party.Identifier.ToString().ToUpper());
 
         double percentage = poll?[party] ?? 0;
@@ -908,35 +915,39 @@ public sealed class Renderer
             status += "\e[90m◯";
 
         Console.CursorLeft = left + 5;
-        Console.Write($"\e[38;2;80;80;80m{new string('·', width)}\e[m {percentage,6:P1}  {status}");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write(new string('·', width));
+        Console.ForegroundColor = ConsoleColor.Default;
+        Console.Write(" {percentage,6:P1}  {status}");
+
+        Console.CursorLeft = left + 5 + (int)Math.Round((width - 1) * .05); // 5%-Hürde
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write('¦');
 
         for (double d = 0; d <= 1; d += .125)
         {
             Console.CursorLeft = left + 5 + (int)Math.Round((width - 1) * d);
-            Console.Write($"\e[38;2;80;80;80m{(d is 0 or 1 or .5 ? '¦' : ':')}");
+            Console.Write(d is 0 or 1 or .5 ? '¦' : ':');
         }
-
-        Console.CursorLeft = left + 5 + (int)Math.Round((width - 1) * .05); // 5%-Hürde
-        Console.Write($"\e[38;2;80;80;80m¦");
 
         int w = (int)(percentage * width);
         char end = " ⡀⡄⡆⡇⣇⣧⣷"[(int)(8 * (percentage * width - w))];
 
-        Console.CursorTop = top;
-        Console.CursorLeft = left + 5;
-        Console.Write((party.VT100Color + new string('⣿', w) + end).TrimEnd());
+        Console.SetCursorPosition(left + 5, top);
+        Console.ForegroundColor = party.Color;
+        Console.Write((new string('⣿', w) + end).TrimEnd());
     }
 
     private static void RenderCoalition(int left, int top, int width, Coalition? coalition)
     {
-        Console.CursorLeft = left;
-        Console.CursorTop = top;
+        Console.SetCursorPosition(left, top);
         Console.Write(new string(' ', width));
 
         width -= 30;
 
         Console.CursorLeft = left;
-        Console.Write($"\e[38;2;80;80;80m└{new string('─', width - 2)}┘");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write($"└{new string('─', width - 2)}┘");
 
         if (coalition?.CoalitionPercentage is double perc and > 0)
         {
@@ -960,7 +971,8 @@ public sealed class Renderer
         Console.Write(')');
 
         Console.CursorLeft = left + width / 2 - 1;
-        Console.Write("\e[38;2;80;80;80m┴");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write('┴');
         Console.CursorLeft = left;
 
         if (coalition is { })
@@ -968,7 +980,8 @@ public sealed class Renderer
             {
                 int w = (int)double.Round(coalition[party] * width);
 
-                Console.Write(party.VT100Color + new string('━', w));
+                Console.ForegroundColor = party.Color;
+                Console.Write(new string('━', w));
             }
     }
 

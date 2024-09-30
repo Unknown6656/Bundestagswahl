@@ -67,31 +67,31 @@ public unsafe struct PartyIdentifier
     public static implicit operator PartyIdentifier(string identifier) => new(identifier);
 }
 
-public sealed class Party(PartyIdentifier identifier, string name, string color, double lr_axis, double al_axis)
+public sealed class Party(PartyIdentifier identifier, string name, ConsoleColor color, double lr_axis, double al_axis)
     : IEquatable<Party>
 {
-    public static Party CDU { get; }       = new("cdu", "CDU/CSU",         "\e[38;2;217;200;235m",  .3, -.3);
-  //public static Party CDU { get; }       = new("cdu", "CDU/CSU",         "\e[38;2;117;100;135m",  .3, -.3);
-    public static Party SPD { get; }       = new("spd", "SPD",             "\e[38;2;255;40;40m",   -.3, -.4);
-    public static Party FDP { get; }       = new("fdp", "FDP",             "\e[38;2;255;200;0m",    .6,  .5);
-    public static Party AFD { get; }       = new("afd", "AfD",             "\e[38;2;0;158;224m",    .5, -.8);
-    public static Party GRÜNE { get; }     = new("grü", "B.90/Die Grünen", "\e[38;2;60;155;0m",    -.5,  .1);
-    public static Party LINKE { get; }     = new("lin", "Die Linke",       "\e[38;2;208;0;67m",    -.6, -.8);
-    public static Party PIRATEN { get; }   = new("pir", "Die Piraten",     "\e[38;2;255;135;0m",   -.1,  .8);
-    public static Party FW { get; }        = new("fw",  "Freie Wähler",    "\e[38;2;0;70;255m",     .4,  .0);
-    public static Party RECHTE { get; }    = new("rep", "NPD/REP/Rechte",  "\e[38;2;170;122;44m",   .9, -.8);
-    public static Party BSW { get; }       = new("bsw", "BSW",             "\e[38;2;111;0;60m",    -.6, -.8);
-    public static Party __OTHER__ { get; } = new("son", "Sonstige",        "\e[38;2;126;176;165m",  .0,  .0);
+    public static Party CDU { get; }       = new("cdu", "CDU/CSU",         new(217, 200, 235),  .3, -.3);
+  //public static Party CDU { get; }       = new("cdu", "CDU/CSU",         new(117, 100, 135),  .3, -.3);
+    public static Party SPD { get; }       = new("spd", "SPD",             new(255,  40,  40), -.3, -.4);
+    public static Party FDP { get; }       = new("fdp", "FDP",             new(255, 200,   0),  .6,  .5);
+    public static Party AFD { get; }       = new("afd", "AfD",             new(  0, 158, 224),  .5, -.8);
+    public static Party GRÜNE { get; }     = new("grü", "B.90/Die Grünen", new( 60, 155,   0), -.5,  .1);
+    public static Party LINKE { get; }     = new("lin", "Die Linke",       new(208,   0,  67), -.6, -.8);
+    public static Party PIRATEN { get; }   = new("pir", "Die Piraten",     new(255, 135,   0), -.1,  .8);
+    public static Party FW { get; }        = new("fw",  "Freie Wähler",    new(  0,  70, 255),  .4,  .0);
+    public static Party RECHTE { get; }    = new("rep", "NPD/REP/Rechte",  new(170, 122,  44),  .9, -.8);
+    public static Party BSW { get; }       = new("bsw", "BSW",             new(111,   0,  60), -.6, -.8);
+    public static Party __OTHER__ { get; } = new("son", "Sonstige",        new(126, 176, 165),  .0,  .0);
 
     public static Party[] All { get; } = [CDU, SPD, FDP, AFD, GRÜNE, LINKE, BSW, PIRATEN, FW, RECHTE, __OTHER__];
     public static Party[] LeftToRight { get; } = [LINKE, BSW, PIRATEN, SPD, GRÜNE, FDP, FW, CDU, AFD, RECHTE];
 
 
-    internal PartyIdentifier Identifier { get; } = identifier;
+    internal PartyIdentifier Identifier => identifier;
 
-    public string Name { get; } = name;
+    public string Name => name;
 
-    public string VT100Color { get; } = color;
+    public ConsoleColor Color => color;
 
     public double EconomicLeftRightAxis { get; } = double.Clamp(lr_axis, -1, 1);
 

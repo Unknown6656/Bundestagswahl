@@ -280,9 +280,9 @@ public class Map
         Console.ResetColor();
 
         foreach ((State state, List<int> positions) in _states)
-            if (coloring.States.TryGetValue(state, out (string Color, char Char) clr))
+            if (coloring.States.TryGetValue(state, out (ConsoleColor Color, char Char) clr))
             {
-                Console.Write(clr.Color);
+                Console.ForegroundColor = clr.Color;
 
                 foreach (int position in positions)
                 {
@@ -295,38 +295,38 @@ public class Map
     }
 }
 
-public record MapColoring(Dictionary<State, (string Color, char Char)> States)
+public record MapColoring(Dictionary<State, (ConsoleColor Color, char Char)> States)
 {
     public static MapColoring Default { get; } = new(new()
     {
-        [State.BW] = "\e[38;2;239;217;115m",
-        [State.BY] = "\e[38;2;149;159;208m",
-        [State.BE] = "\e[38;2;235;227;66m",
-        [State.BB] = "\e[38;2;164;210;174m",
-        [State.HB] = "\e[38;2;222;193;13m",
-        [State.HH] = "\e[38;2;160;124;4m",
-        [State.HE] = "\e[38;2;173;143;193m",
-        [State.MV] = "\e[38;2;232;166;131m",
-        [State.NI] = "\e[38;2;129;200;194m",
-        [State.NW] = "\e[38;2;234;106;106m",
-        [State.RP] = "\e[38;2;122;156;70m",
-        [State.SL] = "\e[38;2;131;123;162m",
-        [State.SN] = "\e[38;2;233;143;179m",
-        [State.ST] = "\e[38;2;230;162;202m",
-        [State.SH] = "\e[38;2;182;210;125m",
-        [State.TH] = "\e[38;2;207;218;98m",
+        [State.BW] = new(239, 217, 115),
+        [State.BY] = new(149, 159, 208),
+        [State.BE] = new(235, 227,  66),
+        [State.BB] = new(164, 210, 174),
+        [State.HB] = new(222, 193,  13),
+        [State.HH] = new(160, 124,   4),
+        [State.HE] = new(173, 143, 193),
+        [State.MV] = new(232, 166, 131),
+        [State.NI] = new(129, 200, 194),
+        [State.NW] = new(234, 106, 106),
+        [State.RP] = new(122, 156,  70),
+        [State.SL] = new(131, 123, 162),
+        [State.SN] = new(233, 143, 179),
+        [State.ST] = new(230, 162, 202),
+        [State.SH] = new(182, 210, 125),
+        [State.TH] = new(207, 218,  98),
 
-        [State.BE_W] = "\e[38;2;235;227;66m",
-        [State.BE_O] = "\e[38;2;234;156;156m",
+        [State.BE_W] = new(235, 227,  66),
+        [State.BE_O] = new(234, 156, 156),
     }, 'x');
 
 
-    public MapColoring(Dictionary<State, string> Colors, char Char)
+    public MapColoring(Dictionary<State, ConsoleColor> Colors, char Char)
         : this(Colors.ToDictionary(pair => pair.Key, pair => (pair.Value, Char)))
     {
     }
 
-    public MapColoring(IEnumerable<State> SelectedStates, string SelectedColor, char SelectedChar, string DeselectedColor, char DeselectedChar)
+    public MapColoring(IEnumerable<State> SelectedStates, ConsoleColor SelectedColor, char SelectedChar, ConsoleColor DeselectedColor, char DeselectedChar)
         : this(Enum.GetValues<State>().ToDictionary(LINQ.id, s => SelectedStates.Contains(s) ? (SelectedColor, SelectedChar) : (DeselectedColor, DeselectedChar)))
     {
     }
