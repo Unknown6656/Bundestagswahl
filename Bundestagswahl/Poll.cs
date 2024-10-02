@@ -22,7 +22,7 @@ public interface IPoll
 public sealed class Coalition
     : IPoll
 {
-    private Dictionary<Party, double> _values = [];
+    private readonly Dictionary<Party, double> _values = [];
 
 
     public Party[] CoalitionParties { get; }
@@ -159,9 +159,7 @@ public sealed class RawPoll
 
         foreach ((Party party, double result) in Results)
         {
-            char[] identifier = [.. party.Identifier];
-
-            writer.Write(identifier, 0, PartyIdentifier.SIZE);
+            writer.Write(party.Identifier);
             writer.Write(result);
         }
     }
@@ -183,13 +181,10 @@ public sealed class RawPoll
 
             for (int i = 0; i < count; ++i)
             {
-                char[] identifier = new char[PartyIdentifier.SIZE];
-
-                reader.Read(identifier, 0, identifier.Length);
-
+                string identifier = reader.ReadString();
                 double result = reader.ReadDouble();
 
-                if (Party.All.FirstOrDefault(p => p.Identifier == new string(identifier)) is Party party)
+                if (Party.All.FirstOrDefault(p => p.Identifier == identifier) is Party party)
                     results[party] = result;
                 else
                     results[Party.__OTHER__] += result;
