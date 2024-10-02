@@ -8,6 +8,7 @@ using Unknown6656.Generics;
 using Unknown6656.Runtime;
 using Unknown6656.Console;
 using Unknown6656.Common;
+using System.IO;
 
 namespace Bundestagswahl;
 
@@ -67,8 +68,9 @@ public sealed class Renderer
         [RenderSize.Medium] = (170, 71),
         [RenderSize.Large] = (190, 99),
     };
+    private static readonly ConsoleColor _dark = new(.27);
 
-    public const string CACHE_FILE = "poll-cache.bin";
+    public static readonly FileInfo CACHE_FILE = new("poll-cache.bin");
     public const ConsoleKey KEY_VIEW_SWITCH = ConsoleKey.Tab;
     public const ConsoleKey KEY_STATE_ENTER = ConsoleKey.Enter;
     public const ConsoleKey KEY_RIGHT = ConsoleKey.RightArrow;
@@ -105,10 +107,11 @@ public sealed class Renderer
     ];
 
 
-    private DateTime? _start_date;
-    private DateTime? _end_date;
+    private DateTime? _min_poll_date;
+    private DateTime? _max_poll_date;
     private DateTime? _selected_start_date;
     private DateTime? _selected_end_date;
+    private DateTime? _selected_date;
     private readonly Dictionary<State, bool> _selected_states = _state_values.ToDictionary(LINQ.id, s => true);
     private readonly ConsoleState _console_state;
 
@@ -121,7 +124,7 @@ public sealed class Renderer
 
     public bool IsActive { get; private set; } = true;
 
-    public PollResult? Polls { get; private set; } = null;
+    public RawPolls? RawPolls { get; private set; } = null;
 
     public PollFetcher PollFetcher { get; }
 
@@ -233,7 +236,7 @@ public sealed class Renderer
         else
         {
             int timeplot_height = (int)double.Clamp(height * height * .006, 20, height * .4);
-            (PollHistory historic, MergedPoll? display) = FetchPolls();
+            (MergedPollHistory historic, MergedPoll? display) = FetchPolls();
 
             RenderFrame(width, height, timeplot_height, clear);
             RenderMap();
@@ -247,7 +250,7 @@ public sealed class Renderer
         }
     }
 
-    private (PollHistory Historic, MergedPoll? Display) FetchPolls()
+    private (MergedPollHistory Historic, MergedPoll? Display) FetchPolls()
     {
         List<State?> states = _selected_states.SelectWhere(kvp => kvp.Value, kvp => (State?)kvp.Key).ToList();
 
@@ -256,14 +259,18 @@ public sealed class Renderer
         else if (states.Contains(State.BE))
             states.AddRange([State.BE_W, State.BE_O]);
 
-        if (Polls?.Polls is { Length: > 0 } polls)
+        if (RawPolls?.Polls is { Length: > 0 } polls)
         {
-            PollHistory history = new(from p in polls
-                                      where p.Date >= _start_date
-                                         && p.Date <= _end_date
-                                         && states.Contains(p.State)
-                                      group p by p.Date into g
-                                      select new MergedPoll([.. g]));
+            MergedPollHistory history = new(from p in polls
+                                            where p.Date >= _min_poll_date
+                                               && p.Date <= _max_poll_date
+                                               && states.Contains(p.State)
+                                            group p by p.Date into g
+                                            select new MergedPoll([.. g]));
+
+            _selected_end_date = _selected_end_date > _max_poll_date ? _max_poll_date : _selected_end_date;
+            _selected_start_date = _selected_start_date < _min_poll_date ? _min_poll_date : _selected_start_date;
+            _selected_date = _selected_date < _min_poll_date ? _min_poll_date : _selected_date > _max_poll_date ? _max_poll_date : _selected_date;
 
 
             MergedPoll? display = history.Polls.LastOrDefault(); // TODO <--- make this based on the current date selection
@@ -272,27 +279,27 @@ public sealed class Renderer
             return (history, display);
         }
         else
-            return (PollHistory.Empty, null);
+            return (MergedPollHistory.Empty, null);
     }
 
     public async Task FetchPollsAsync()
     {
-        Polls = await RenderFetchingPrompt(PollFetcher.FetchAsync);
+        RawPolls = await RenderFetchingPrompt(PollFetcher.FetchAsync);
 
-        if (Polls.Polls is { Length:> 0 } polls)
+        if (RawPolls.Polls is { Length:> 0 } polls)
         {
-            _start_date = polls[^1].Date;
-            _end_date = polls[0].Date;
+            _min_poll_date = polls[^1].Date;
+            _max_poll_date = polls[0].Date;
 
-            _selected_start_date ??= _start_date;
-            _selected_end_date ??= _end_date;
-            // TODO : adjust start and end date 
+            _selected_start_date ??= _min_poll_date;
+            _selected_end_date ??= _max_poll_date;
+            // TODO : adjust start and end date
         }
         else
-            _start_date = _end_date = _selected_start_date = _selected_end_date = null;
+            _min_poll_date = _max_poll_date = _selected_start_date = _selected_end_date = null;
     }
 
-    public async Task<PollResult> RenderFetchingPrompt(Func<Task<PollResult>> task)
+    public async Task<RawPolls> RenderFetchingPrompt(Func<Task<RawPolls>> task)
     {
         (int x, int y) = RenderModalPrompt("Umfrageergebnisse werden geladen...\nBitte warten.", ConsoleColor.Blue, ConsoleColor.DarkBlue);
 
@@ -328,7 +335,7 @@ public sealed class Renderer
             }
         });
 
-        PollResult result = await task();
+        RawPolls result = await task();
         completed = true;
 
         await spinner;
@@ -352,7 +359,7 @@ public sealed class Renderer
             for (int _x = _y % 2 + 1; _x < width - 1; _x += 2)
             {
                 Console.SetCursorPosition(_x, _y);
-                Console.Write('/');
+                Console.Write('╱');
             }
 
         string[] prompt = content.SplitIntoLines();
@@ -609,7 +616,7 @@ public sealed class Renderer
             }
     }
 
-    private void RenderHistoricPlot(int width, int height, PollHistory historic)
+    private void RenderHistoricPlot(int width, int height, MergedPollHistory historic)
     {
         if (!_invalidate.HasFlag(RenderInvalidation.HistoricPlot))
             return;
@@ -696,9 +703,8 @@ public sealed class Renderer
                     int y = (int)(graph_height * (1 - percentage));
                     double ydiff = graph_height * (1 - percentage) - y;
 
-                    Console.CursorTop = 2 + y;
-                    Console.CursorLeft = left + 9 + x;
-                    Console.Write(party.Color);
+                    Console.SetCursorPosition(left + 9 + x, 2 + y);
+                    Console.ForegroundColor = party.Color;
 
                     if (current)
                         Console.Write("⬤"); // *⬤◯
@@ -740,24 +746,24 @@ public sealed class Renderer
         Console.ResetGraphicRenditions();
         Console.ForegroundColor = ConsoleColor.White;
         Console.WriteBlock($"""
-        {Polls?.Polls?.Length ?? 0} Umfragen zwischen   
-        {_start_date:yyyy-MM-dd} und {_end_date:yyyy-MM-dd}
+        {RawPolls?.Polls?.Length ?? 0} Umfragen zwischen   
+        {_min_poll_date:yyyy-MM-dd} und {_max_poll_date:yyyy-MM-dd}
         verfügbar.
         """, left, 2);
 
-        if (Polls?.Polls is { Length: > 0 } polls)
+        if (RawPolls?.Polls is { Length: > 0 } polls)
         {
             bool active = _source_cursor is SourceCursorPosition.StartSelector && _current_view is Views.Source;
 
-            RenderDateSelector(left, 6, "START", 23, _selected_start_date, _start_date, _end_date, active);
+            RenderDateSelector(left, 6, "START", 23, _selected_start_date, _min_poll_date, _max_poll_date, active);
 
             active = _source_cursor is SourceCursorPosition.EndSelector && _current_view is Views.Source;
 
-            RenderDateSelector(left, 8, "ENDE", 23, _selected_end_date, _start_date, _end_date, active);
+            RenderDateSelector(left, 8, "ENDE", 23, _selected_end_date, _min_poll_date, _max_poll_date, active);
 
             active = _source_cursor is SourceCursorPosition.DateSelector && _current_view is Views.Source;
 
-            RenderDateSelector(left, 10, "DATUM", 23, DateTime.UnixEpoch, _start_date, _end_date, active);
+            RenderDateSelector(left, 10, "DATUM", 23, DateTime.UnixEpoch, _min_poll_date, _max_poll_date, active);
         }
         else
         {
@@ -851,12 +857,12 @@ public sealed class Renderer
                 for (int x = 1; x < width - 1; ++x)
                 {
                     Console.SetCursorPosition(left + x, top + y);
-                    Console.ForegroundColor = y == height / 2 || x == width / 2 ? ConsoleColor.Gray : ConsoleColor.DarkGray;
+                    Console.ForegroundColor = y == height / 2 || x == width / 2 ? ConsoleColor.DarkGray : _dark;
                     Console.Write((x % 4, y % 2) switch
                     {
-                        (0, 0) => '+', // TODO : switch to unicode dashed equivalent
-                        (_, 0) => '-', // TODO : switch to unicode dashed equivalent
-                        (0, 1) => '¦', // TODO : switch to unicode dashed equivalent
+                        (0, 0) => '+', // ┼
+                        (_, 0) => '-', // ┄
+                        (0, 1) => '¦', // ┆
                         _ => ' ',
                     });
                 }
@@ -918,7 +924,7 @@ public sealed class Renderer
         Console.ForegroundColor = ConsoleColor.DarkGray;
         Console.Write(new string('·', width));
         Console.ForegroundColor = ConsoleColor.Default;
-        Console.Write(" {percentage,6:P1}  {status}");
+        Console.Write($" {percentage,6:P1}  {status}");
 
         Console.CursorLeft = left + 5 + (int)Math.Round((width - 1) * .05); // 5%-Hürde
         Console.ForegroundColor = ConsoleColor.DarkGray;
@@ -966,7 +972,7 @@ public sealed class Renderer
 
         Console.ForegroundColor = ConsoleColor.Gray;
         Console.Write('(');
-        Console.Write(coalition?.CoalitionParties?.Select(party => party.VT100Color + party.Identifier.ToString().ToUpper() + "\e[m").StringJoin(", "));
+        Console.Write(coalition?.CoalitionParties?.Select(party => $"{party.Color.ToVT520(ColorMode.Foreground)}{party.Identifier.ToString().ToUpper()}\e[m").StringJoin(", "));
         Console.ForegroundColor = ConsoleColor.Gray;
         Console.Write(')');
 
@@ -1001,9 +1007,9 @@ public sealed class Renderer
     {
         RenderInvalidation process()
         {
-            switch (key.Key)
+            switch ((key.Key, _current_view))
             {
-                case KEY_VIEW_SWITCH:
+                case (KEY_VIEW_SWITCH, _):
                     int dir = key.Modifiers.HasFlag(ConsoleModifiers.Shift) ? -1 : 1;
                     int count = Enum.GetValues<Views>().Length;
                     RenderInvalidation invalidation = RenderInvalidation.FrameText;
@@ -1013,35 +1019,22 @@ public sealed class Renderer
                     invalidation |= GetRenderInvalidateion(_current_view);
 
                     return invalidation;
-                case KEY_RIGHT when _current_view is Views.States:
+
+                #region STATE SELECTION
+
+                case (KEY_RIGHT, Views.States):
                     _state_cursor = _state_cursor_values[(_state_cursor_values.IndexOf(_state_cursor) + 1) % _state_cursor_values.Length];
 
                     return RenderInvalidation.StateSelector;
-                case KEY_LEFT when _current_view is Views.States:
+                case (KEY_LEFT, Views.States):
                     _state_cursor = _state_cursor_values[(_state_cursor_values.IndexOf(_state_cursor) - 1 + _state_cursor_values.Length) % _state_cursor_values.Length];
 
                     return RenderInvalidation.StateSelector;
-                case KEY_DOWN when _current_view is Views.States: // TODO : implement
+                case (KEY_DOWN, Views.States): // TODO : implement
                     return RenderInvalidation.StateSelector;
-                case KEY_UP when _current_view is Views.States: // TODO : implement
+                case (KEY_UP, Views.States): // TODO : implement
                     return RenderInvalidation.StateSelector;
-                case KEY_DOWN when _current_view is Views.Source:
-                    _source_cursor = _source_cursor switch
-                    {
-                        SourceCursorPosition.StartSelector => SourceCursorPosition.EndSelector,
-                        _ => SourceCursorPosition.DateSelector,
-                    };
-
-                    return RenderInvalidation.DataSource;
-                case KEY_UP when _current_view is Views.Source:
-                    _source_cursor = _source_cursor switch
-                    {
-                        SourceCursorPosition.DateSelector => SourceCursorPosition.EndSelector,
-                        _ => SourceCursorPosition.StartSelector,
-                    };
-
-                    return RenderInvalidation.DataSource;
-                case KEY_STATE_ENTER when _current_view is Views.States:
+                case (KEY_STATE_ENTER, Views.States):
                     if (_state_cursor is StateCursorPosition.Invert)
                         foreach (State state in _state_values)
                             _selected_states[state] ^= true;
@@ -1079,6 +1072,49 @@ public sealed class Renderer
                          | RenderInvalidation.Coalitions
                          | RenderInvalidation.Compass
                          | RenderInvalidation.DataSource;
+
+                #endregion
+                #region SOURCE / DATE SELECTION
+
+                case (KEY_DOWN, Views.Source):
+                    _source_cursor = _source_cursor switch
+                    {
+                        SourceCursorPosition.StartSelector => SourceCursorPosition.EndSelector,
+                        _ => SourceCursorPosition.DateSelector,
+                    };
+
+                    return RenderInvalidation.DataSource;
+                case (KEY_UP, Views.Source):
+                    _source_cursor = _source_cursor switch
+                    {
+                        SourceCursorPosition.DateSelector => SourceCursorPosition.EndSelector,
+                        _ => SourceCursorPosition.StartSelector,
+                    };
+
+                    return RenderInvalidation.DataSource;
+                case (KEY_LEFT or KEY_RIGHT, Views.Source):
+                    bool next = key.Key is KEY_RIGHT;
+
+                    if (_source_cursor is SourceCursorPosition.StartSelector)
+                    {
+
+
+                    }
+                    else if (_source_cursor is SourceCursorPosition.EndSelector)
+                    {
+
+                    }
+                    else if (_source_cursor is SourceCursorPosition.DateSelector)
+                    {
+
+
+
+                    }
+
+                    return RenderInvalidation.DataSource;
+
+                #endregion
+
                 default:
                     return RenderInvalidation.None;
             }
