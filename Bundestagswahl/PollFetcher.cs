@@ -1,3 +1,6 @@
+﻿// use the following flag if you want to use SQLITE an an in-memory caching layer.
+//#define USE_SQLITE_DB
+
 using System.Text.RegularExpressions;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -5,10 +8,18 @@ using System.Threading.Tasks;
 using System.Globalization;
 using System.Net.Http;
 using System.Linq;
-using System.Text;
 using System.Web;
 using System.IO;
 using System;
+
+#if USE_SQLITE_DB
+using System.Diagnostics.CodeAnalysis;
+using System.Data.Common;
+using System.Reflection;
+using System.Text;
+
+using Microsoft.Data.Sqlite;
+#endif
 
 using HtmlAgilityPack;
 
@@ -18,412 +29,325 @@ using Unknown6656.Common;
 namespace Bundestagswahl;
 
 
-
-public interface IPoll
+public sealed class PollDatabase
 {
-    public DateTime Date { get; }
-
-    public Party StrongestParty { get; }
-
-    public double this[Party party] { get; }
-}
-
-public sealed class Coalition
-    : IPoll
-{
-    private Dictionary<Party, double> _values = [];
+#if USE_SQLITE_DB
+    private SqliteConnection _sqlite_conn;
+#else
+    private RawPolls _polls;
+#endif
+    private readonly FileInfo _dump_file;
 
 
-    public Party[] CoalitionParties { get; }
-
-    public Party[] OppositionParties { get; }
-
-    public Party? StrongestParty { get; }
-
-    public double CoalitionPercentage { get; }
-
-    public double OppositionPercentage { get; }
-
-    public IPoll UnderlyingPoll { get; }
-
-    public DateTime Date => UnderlyingPoll.Date;
-
-
-    public double this[Party party] => _values.TryGetValue(party, out double percentage) ? percentage : 0;
-
-
-    public Coalition(IPoll poll, params Party[] parties)
+    public PollDatabase(FileInfo dumpfile)
     {
-        UnderlyingPoll = poll;
-        CoalitionParties = parties.Where(p => poll[p] >= .05)
-                                  .OrderByDescending(p => poll[p])
-                                  .ToArray();
-        OppositionParties = Party.All.Except(parties).ToArrayWhere(p => poll[p] >= .05);
-        StrongestParty = CoalitionParties.MaxBy(p => poll[p]);
-        CoalitionPercentage = 0;
+        _dump_file = dumpfile;
+#if USE_SQLITE_DB
+        _sqlite_conn = null!;
 
-        double sum = 0;
+        Connect().GetAwaiter().GetResult();
+#else
+        _polls = RawPolls.Empty;
+#endif
+    }
 
-        foreach (Party party in CoalitionParties)
+#if USE_SQLITE_DB
+    private async Task Connect()
+    {
+        SqliteConnectionStringBuilder builder = new()
         {
-            sum += _values[party] = poll[party];
-            CoalitionPercentage += poll[party];
+            DataSource = ":memory:",
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            Cache = SqliteCacheMode.Private,
+        };
+        _sqlite_conn = new(builder.ConnectionString);
+
+        await _sqlite_conn.OpenAsync();
+        await ExecuteCommand("""
+        PRAGMA journal_mode = WAL;
+        PRAGMA synchronous = NORMAL;
+        """);
+        await CreateTables();
+    }
+#endif
+
+    public async Task<bool> Load()
+    {
+        if (_dump_file.Exists)
+        {
+            List<RawPoll> results = [];
+
+            using FileStream fs = new(_dump_file.FullName, FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite);
+            using BinaryReader rd = new(fs);
+
+            while (RawPoll.TryDeserialize(rd) is RawPoll result)
+                results.Add(result);
+#if USE_SQLITE_DB
+            await InsertPolls(results);
+#else
+            _polls = new(results.OrderBy(p => p.Date));
+#endif
+            return true;
         }
 
-        foreach (Party party in OppositionParties)
-            sum += _values[party] = poll[party];
-
-        foreach (Party party in CoalitionParties.Concat(OppositionParties))
-            _values[party] /= sum;
-
-        CoalitionPercentage /= sum;
-        OppositionPercentage = 1 - CoalitionPercentage;
+        return false;
     }
 
-    public override bool Equals(object? obj) => obj is Coalition other &&
-                                                other.UnderlyingPoll == UnderlyingPoll &&
-                                                other._values.Keys.SetEquals(_values.Keys);
-
-    public override int GetHashCode()
+    public async Task Save()
     {
-        int hc = UnderlyingPoll.GetHashCode();
+        if (_dump_file.Exists)
+            _dump_file.Delete();
 
-        foreach (Party party in _values.Keys)
-            hc = HashCode.Combine(hc, (string)party.Identifier);
+        await using FileStream fs = new(_dump_file.FullName, FileMode.Create, FileAccess.Write, FileShare.Read);
+        await using BinaryWriter wr = new(fs);
 
-        return hc;
-    }
-}
+#if USE_SQLITE_DB
+        await foreach (RawPoll poll in FetchAllPolls())
+#else
+        foreach (RawPoll poll in _polls.Polls)
+#endif
+            poll.Serialize(wr);
 
-public sealed class Poll
-    : IPoll
-{
-    public static Poll Empty { get; } = new(DateTime.UnixEpoch, null, "<none>", "<none>", new Dictionary<Party, double>());
-
-
-    public DateTime Date { get; }
-
-    public string Pollster { get; }
-
-    public string SourceURI { get; }
-
-    public State? State { get; }
-
-    public bool IsFederal => State is null;
-
-    public Party StrongestParty => Results.OrderByDescending(kvp => kvp.Value).FirstOrDefault().Key ?? Party.__OTHER__;
-
-    internal IReadOnlyDictionary<Party, double> Results { get; }
-
-    public double this[Party p] => Results.ContainsKey(p) ? Results[p] : 0;
-
-
-    public Poll(DateTime date, State? state, string pollster, string source_uri, Dictionary<Party, double> values)
-    {
-        Date = date;
-        State = state;
-        Pollster = pollster;
-        SourceURI = source_uri;
-
-        if (!values.ContainsKey(Party.__OTHER__))
-            values[Party.__OTHER__] = Math.Max(0, 1 - values.Values.Sum());
-
-        double sum = values.Values.Sum();
-
-        if (sum is not 1 or 0)
-            values = values.ToDictionary(pair => pair.Key, pair => pair.Value / sum);
-
-        Results = new ReadOnlyDictionary<Party, double>(values);
+        wr.Flush();
     }
 
-    public Poll(DateTime date, State? state, string pollster, string source_uri, Dictionary<string, double> values)
-        : this(date, state, pollster, source_uri, new Func<Dictionary<Party, double>>(() =>
-        {
-            Dictionary<Party, double> percentages = [];
-
-            foreach (string id in values.Keys)
-                if (Party.All.FirstOrDefault(p => p.Identifier == id) is Party p)
-                    percentages[p] = values[id];
-
-            return percentages;
-        })())
+#if USE_SQLITE_DB
+    private async Task ResetConnection()
     {
+        await _sqlite_conn.CloseAsync();
+        await _sqlite_conn.DisposeAsync();
+
+        _sqlite_conn = null!;
+
+        if (_dump_file.Exists)
+            _dump_file.Delete();
+
+        await Connect();
     }
 
-    public override string ToString() =>
-        $"{Date:yyyy-MM-dd}, {State?.ToString() ?? "BUND"} {Results.Select(kvp => $", {kvp.Key.Identifier}={kvp.Value:P1}").StringConcat()} ({SourceURI})";
+    [return: NotNullIfNotNull(nameof(str))]
+    private static string? normalize(string? str) => str is null ? null : new(str.ToArrayWhere(char.IsAsciiLetterOrDigit, char.ToLower));
 
-    internal void Serialize(BinaryWriter writer)
+    private static object? Convert(object? value, Type target_type, out bool success)
     {
-        writer.Write(Date.Ticks);
+        success = true;
 
-        if (State is null)
-            writer.Write((byte)0xff);
-        else
-            writer.Write((byte)State);
-
-        writer.Write(Pollster);
-        writer.Write(SourceURI);
-        writer.Write(Results.Count);
-
-        foreach ((Party party, double result) in Results)
-        {
-            char[] identifier = [..party.Identifier];
-
-            writer.Write(identifier, 0, PartyIdentifier.SIZE);
-            writer.Write(result);
-        }
-    }
-
-    internal static Poll? TryDeserialize(BinaryReader reader)
-    {
-        try
-        {
-            long ticks = reader.ReadInt64();
-            State? state = reader.ReadByte() is byte b and not 0xff ? (State)b : null;
-            string pollster = reader.ReadString();
-            string source_uri = reader.ReadString();
-            int count = reader.ReadInt32();
-
-            Dictionary<Party, double> results = new()
-            {
-                [Party.__OTHER__] = 0d
-            };
-
-            for (int i = 0; i < count; ++i)
-            {
-                char[] identifier = new char[PartyIdentifier.SIZE];
-
-                reader.Read(identifier, 0, identifier.Length);
-
-                double result = reader.ReadDouble();
-
-                if (Party.All.FirstOrDefault(p => p.Identifier == new string(identifier)) is Party party)
-                    results[party] = result;
-                else
-                    results[Party.__OTHER__] += result;
-            }
-
-            return new(new(ticks), state, pollster, source_uri, results);
-        }
-        catch
-        {
+        if (target_type == typeof(void))
             return null;
-        }
-    }
-}
-
-public sealed class MergedPoll
-    : IPoll
-{
-    private const double EAST_BERLIN_PERCENTAGE = .37516441883;
-    private static readonly Dictionary<State, int> _population_per_state = new()
-    {
-        [State.BW] = 11_280_000,
-        [State.BY] = 13_369_000,
-        [State.BE] =  3_755_000,
-        [State.BB] =  2_573_000,
-        [State.HB] =    685_000,
-        [State.HH] =  1_892_000,
-        [State.HE] =  6_391_000,
-        [State.MV] =  1_628_000,
-        [State.NI] =  8_140_000,
-        [State.NW] = 18_139_000,
-        [State.RP] =  4_159_000,
-        [State.SL] =    993_000,
-        [State.SN] =  4_086_000,
-        [State.ST] =  2_187_000,
-        [State.SH] =  2_953_000,
-        [State.TH] =  2_127_000,
-    };
-    private static readonly int _population_total = _population_per_state.Values.Sum();
-
-    public Poll[] Polls { get; }
-
-    public State[] States { get; }
-
-    public Party StrongestParty { get; }
-
-    public (Party party, double percentage)[] Percentages => [..from party in Party.All
-                                                                let perc = this[party]
-                                                                where perc > 0
-                                                                orderby perc descending
-                                                                select (party, perc)];
-
-    public DateTime EarliestDate { get; }
-
-    public DateTime LatestDate { get; }
-
-    DateTime IPoll.Date => LatestDate;
-
-    internal IReadOnlyDictionary<Party, double> Results { get; }
-
-    public double this[Party p] => Results.ContainsKey(p) ? Results[p] : 0;
-
-
-    static MergedPoll()
-    {
-        int be = _population_per_state[State.BE];
-
-        _population_per_state[State.BE_O] = (int)(be * EAST_BERLIN_PERCENTAGE);
-        _population_per_state[State.BE_W] = be - _population_per_state[State.BE_O];
-    }
-
-    public MergedPoll(params Poll[] polls)
-    {
-        Polls = polls;
-
-        if (polls.Length > 0)
-        {
-            States = polls.SelectWhere(p => p.State.HasValue, p => p.State!.Value).Distinct().ToArray();
-            EarliestDate = polls.Min(p => p.Date);
-            LatestDate = polls.Max(p => p.Date);
-
-            Dictionary<Party, double> results = [];
-            double total = 0;
-
-            foreach (Party party in Party.All)
+        else if (target_type.IsGenericType && target_type.GetGenericTypeDefinition() == typeof(Nullable<>))
+            return value is DBNull or null ? null : Convert(value, target_type.GetGenericArguments()[0], out success);
+        else if (value is DBNull or null)
+            return target_type.IsValueType ? Activator.CreateInstance(target_type) : null;
+        else if (target_type.IsAssignableFrom(value.GetType()))
+            return value;
+        else if (target_type == typeof(bool))
+            return Convert(value as string ?? value?.ToString() ?? "0", typeof(int), out success) is int and not 0;
+        else if (target_type == typeof(Guid))
+            return Guid.Parse(value as string ?? value?.ToString());
+        else
+            try
             {
-                double sum = 0;
-                double pop = 0;
+                object? result = System.Convert.ChangeType(value, target_type);
 
-                foreach (Poll poll in polls)
-                {
-                    int p = poll.State is State s ? _population_per_state[s] : _population_total;
+                if (result is null && target_type.IsValueType)
+                    result = Activator.CreateInstance(target_type);
 
-                    sum += poll[party] * p;
-                    pop += p;
-                }
-
-                sum = Math.Max(sum / pop, 0);
-                results[party] = sum;
-                total += sum;
+                if (result is null || result.GetType().IsAssignableFrom(target_type))
+                    return result;
+            }
+            catch
+            {
             }
 
-            foreach (Party party in Party.All)
-                results[party] /= total;
+        if (value is string str)
+        {
+            // TODO : ?
 
-            Results = new ReadOnlyDictionary<Party, double>(results);
-            StrongestParty = Results.OrderByDescending(kvp => kvp.Value).FirstOrDefault().Key ?? Party.__OTHER__;
+
+
+            success = false;
+
+            throw new InvalidCastException($"Cannot convert \"{str}\" ({value?.GetType()}) to an instance of {target_type}.");
         }
         else
+            return Convert(value.ToString(), target_type, out success);
+    }
+
+    private async IAsyncEnumerable<T?> ExecuteCommand<T>(string sql)
+    {
+        await using SqliteCommand cmd = new(sql, _sqlite_conn);
+        await using SqliteDataReader reader = await cmd.ExecuteReaderAsync();
+        DbColumn[] schema = [.. await reader.GetColumnSchemaAsync()];
+        (ConstructorInfo Ctor, (string Name, Type TargetType)[] Params, Dictionary<string, PropertyInfo> Props)? type_info = null;
+
+        if (typeof(T).GetConstructors().OrderByDescending(c => c.GetParameters().Length).FirstOrDefault() is ConstructorInfo ctor)
         {
-            States = [];
-            EarliestDate =
-            LatestDate = DateTime.UtcNow;
-            Results = Party.All.ToDictionary(LINQ.id, p => 0d);
-            StrongestParty = Party.__OTHER__;
+            (string Name, Type TargetType)[] param_mapping = ctor.GetParameters().ToArray(param => (normalize(param.Name) ?? "", param.ParameterType));
+            Dictionary<string, PropertyInfo> prop_mapping = [];
+
+            foreach (PropertyInfo prop in typeof(T).GetProperties())
+                if (prop.CanWrite)
+                    prop_mapping[normalize(prop.Name)] = prop;
+
+            type_info = (ctor, param_mapping, prop_mapping);
+        }
+
+        while (await reader.ReadAsync())
+        {
+            object? parsed = null;
+            bool success = false;
+
+            if (schema.Length == 1)
+                parsed = Convert(reader[0], typeof(T), out success);
+            else if (type_info is { } info)
+            {
+                Dictionary<string, object> fields = schema.ToDictionary(col => normalize(col.ColumnName), col => reader[col.ColumnName]);
+                object?[] args = new object?[info.Params.Length];
+
+                success = true;
+
+                for (int i = 0; i < args.Length && success; ++i)
+                    args[i] = fields.TryGetValue(info.Params[i].Name, out object? value) ? Convert(value, info.Params[i].TargetType, out success) : null;
+
+                try
+                {
+                    parsed = info.Ctor.Invoke(args);
+
+                    foreach ((string name, object? value) in fields)
+                        if (info.Props.TryGetValue(name, out PropertyInfo? prop) && success)
+                            try
+                            {
+                                prop.SetValue(parsed, Convert(value, prop.PropertyType, out success));
+                            }
+                            catch
+                            {
+                                success = true; // TODO
+                            }
+                }
+                catch
+                {
+                    success = false;
+                }
+            }
+
+            if (success)
+                yield return (T?)parsed;
+            else
+                yield break;
         }
     }
 
-    public override string ToString() =>
-        $"{EarliestDate:yyyy-MM-dd}-{LatestDate:yyyy-MM-dd}, {States.Select(s => s.ToString() ?? "BUND").StringJoin(", ")} {Results.Select(kvp => $", {kvp.Key.Identifier}={kvp.Value:P1}").StringConcat()} ({Polls.Length} polls)";
+    private async Task ExecuteCommand(string sql)
+    {
+        await using SqliteCommand cmd = new(sql, _sqlite_conn);
+        await cmd.ExecuteNonQueryAsync();
+    }
 
-    public static implicit operator Poll[](MergedPoll poll) => poll.Polls;
+    private Task CreateTables() => ExecuteCommand($"""
+        CREATE TABLE IF NOT EXISTS [PollInfo] (
+            [ID]        INTEGER NOT NULL,
+            [Date]      TEXT    NOT NULL,
+            [Pollster]  TEXT    NULL,
+            [Source]    TEXT    NULL,
+            [State]     INTEGER NULL,
 
-    public static implicit operator MergedPoll(Poll[] polls) => new(polls);
+            PRIMARY KEY ([ID])
+        );
+
+        CREATE TABLE IF NOT EXISTS [PollResults] (
+            [PollID]        INTEGER NOT NULL,
+            [Party]         TEXT    NOT NULL,
+            [Percentage]    REAL    NOT NULL,
+
+            PRIMARY KEY ([PollID], [Party]),
+            FOREIGN KEY ([PollID]) REFERENCES [PollInfo]([ID])
+        );
+
+        CREATE TABLE IF NOT EXISTS [FetcherInfo] (
+            [__zero__]      INTEGER NOT NULL,
+            [DateFetched]   TEXT    NOT NULL,
+
+            -- TODO : more static data ?
+
+            PRIMARY KEY ([__zero__])
+        );
+    """);
+
+    public async Task<DateTime?> GetLastUpdated()
+    {
+        await foreach (DateTime dt in ExecuteCommand<DateTime>("SELECT [DateFetched] FROM [FetcherInfo] WHERE [__zero__] = 0"))
+            return dt;
+
+        return null;
+    }
+    
+    public async Task InsertPolls(IEnumerable<RawPoll> polls)
+    {
+        StringBuilder sb = new("BEGIN;");
+        int id = 0;
+
+        foreach (RawPoll poll in polls)
+        {
+            string state = poll.State is State s ? ((int)s).ToString() : "NULL";
+
+            sb.AppendLine($"""
+
+            INSERT INTO [PollInfo] ([ID], [Date], [Pollster], [Source], [State])
+            VALUES ({(++id).ToString(CultureInfo.InvariantCulture)}, '{poll.Date:yyyy-MM-dd}', '{poll.Pollster}', '{poll.SourceURI}', {state});
+
+            INSERT OR IGNORE INTO [PollResults] ([PollID], [Party], [Percentage])
+            VALUES {poll.Results.Select(kvp => $"({id.ToString(CultureInfo.InvariantCulture)}, '{kvp.Key.Identifier,3}', {kvp.Value})").StringJoin(",\n       ")};
+
+            INSERT OR IGNORE INTO [FetcherInfo] ([__zero__], [DateFetched]) VALUES (0, '');
+            UPDATE [FetcherInfo] SET [DateFetched] = '{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}' WHERE [__zero__] = 0;
+            """);
+        }
+
+        sb.AppendLine("COMMIT;");
+
+        await ExecuteCommand(sb.ToString());
+    }
+    
+    public async IAsyncEnumerable<RawPoll> FetchAllPolls()
+    {
+        await foreach (_poll_info? info in ExecuteCommand<_poll_info>("SELECT [ID], [Date], [Pollster], [Source], [State] FROM [PollInfo]"))
+            if (info is { })
+            {
+                Dictionary<Party, double> results = [];
+
+                await foreach (_poll_result? result in ExecuteCommand<_poll_result>($"SELECT [PollID], [Party], [Percentage] FROM [PollResults] WHERE [PollID] = {info.ID.ToString(CultureInfo.InvariantCulture)}"))
+                    if (result is { } && Party.TryGetParty(result.Party) is Party party)
+                        results[party] = result.Percentage;
+
+                yield return new(info.Date, info.State is int s ? (State)s : null, info.Pollster ?? "(none)", info.Source ?? "(none)", results);
+            }
+    }
+#else
+    public Task InsertPolls(IEnumerable<RawPoll> polls)
+    {
+        _polls = new(polls.Concat(_polls.Polls).OrderBy(p => p.Date));
+
+        return Task.CompletedTask;
+    }
+
+    public async IAsyncEnumerable<RawPoll> FetchAllPolls()
+    {
+        foreach (RawPoll poll in _polls.Polls)
+            yield return poll;
+
+        await Task.CompletedTask;
+    }
+#endif
+
+
+    private record _poll_info(int ID, DateTime Date, string? Pollster, string? Source, int? State);
+    private record _poll_result(int PollID, string Party, double Percentage);
 }
 
-// TODO : check whether we need this class or if we can merge its functionality into "PollHistory"
-public sealed class PollResult(IEnumerable<Poll> polls)
-{
-    public static PollResult Empty { get; } = new([]);
-
-    public int PollCount => Polls.Length;
-
-    public Poll[] Polls { get; } = [.. polls.OrderByDescending(p => p.Date)];
-
-
-    //public Poll? MostRecent() => Polls.FirstOrDefault();
-
-    //public Poll[] MostRecent(int count) => Polls.Take(count).ToArray();
-
-    //public Poll? MostRecent(State? state) => Polls.Where(p => p.State == state).FirstOrDefault();
-
-    //public Poll[] MostRecent(State? state, int count) => Polls.Where(p => p.State == state).Take(count).ToArray();
-
-    //public Poll[] In(State? state) => Polls.Where(p => p.State == state).ToArray();
-
-    //public Poll[] During(DateTime earliest, DateTime latest) => Polls.Where(p => p.Date >= earliest && p.Date <= latest).ToArray();
-
-    //public Poll[] During(DateTime earliest, DateTime latest, State state) => Polls.Where(p => p.Date >= earliest && p.Date <= latest && p.State == state).ToArray();
-
-    public string AsCSV()
-    {
-        Party[] parties = Party.All;
-        StringBuilder sb = new();
-
-        sb.AppendLine($"id,date,pollster,source,state,{parties.Select(p => p.Identifier).StringJoin(",")}");
-
-        for (int i = 0; i < Polls.Length; i++)
-        {
-            Poll poll = Polls[i];
-
-            sb.AppendLine($"{i},{poll.Date:yyyy-MM-dd},\"{poll.Pollster}\",\"{poll.SourceURI}\",{poll.State?.ToString() ?? "DE"},{parties.Select(p => poll[p].ToString("P1")).StringJoin(",")}");
-        }
-
-        return sb.ToString();
-    }
-
-    public string AsCSV(State? state)
-    {
-        Party[] parties = Party.All;
-        StringBuilder sb = new();
-
-        sb.AppendLine($"id,date,pollster,source,state,{parties.Select(p => p.Identifier).StringJoin(",")}");
-
-        for (int i = 0; i < Polls.Length; i++)
-        {
-            Poll poll = Polls[i];
-
-            if (poll.State == state || (state is State.BE && poll.State is State.BE_W or State.BE_O))
-                sb.AppendLine($"{i},{poll.Date:yyyy-MM-dd},\"{poll.Pollster}\",\"{poll.SourceURI}\",{poll.State},{parties.Select(p => poll[p].ToString("P1")).StringJoin(",")}");
-        }
-
-        return sb.ToString();
-    }
-}
-
-public sealed class PollHistory(IEnumerable<MergedPoll> polls)
-{
-    public static PollHistory Empty { get; } = new([]);
-
-
-    public int PollCount => Polls.Length;
-
-    public MergedPoll[] Polls { get; } = [.. polls.OrderByDescending(p => p.LatestDate)];
-
-    public MergedPoll? MostRecentPoll => Polls.FirstOrDefault();
-
-    public MergedPoll? OldestPoll => Polls.LastOrDefault();
-
-
-    public MergedPoll? GetMostRecentAt(DateTime date) => Polls.SkipWhile(p => p.LatestDate > date).FirstOrDefault();
-
-    public string AsCSV()
-    {
-        Party[] parties = Party.All;
-        StringBuilder sb = new();
-
-        sb.AppendLine($"id,start,end,pollsters,sources,states,{parties.Select(p => p.Identifier).StringJoin(",")}");
-
-        for (int i = 0; i < Polls.Length; i++)
-        {
-            MergedPoll merged = Polls[i];
-            string pollsters = merged.Polls.Select(p => p.Pollster).Distinct().StringJoin(";");
-            string sources = merged.Polls.Select(p => p.SourceURI).Distinct().StringJoin(";");
-            string states = merged.Polls.Select(p => p.State?.ToString() ?? "DE").Distinct().StringJoin(";");
-
-            sb.AppendLine($"{i},{merged.EarliestDate:yyyy-MM-dd},{merged.LatestDate:yyyy-MM-dd},\"{pollsters}\",\"{sources}\",{states},{parties.Select(p => merged[p].ToString("P1")).StringJoin(",")}");
-        }
-
-        return sb.ToString();
-    }
-}
-
-public sealed partial class PollFetcher(FileInfo cachefile)
+public sealed partial class PollFetcher(PollDatabase database)
 {
     public const long MAX_CACHE_LIFETIME_SECONDS = 3600 * 24 * 7; // keep cache for a maximum of one week.
+    public static DateTime MIN_DATE { set; get; } = new(1990, 01, 01);
 
     private const string BASE_URL_FEDERAL = "https://www.wahlrecht.de/umfragen/";
     private static readonly Dictionary<State, string> BASE_URL_STATES = new()
@@ -458,57 +382,35 @@ public sealed partial class PollFetcher(FileInfo cachefile)
     ];
 
 
-    public void InvalidateCache()
+    public PollDatabase PollDatabase => database;
+
+
+    private async Task WriteCacheAsync(RawPolls results)
     {
-        if (cachefile.Exists)
-            cachefile.Delete();
+        await database.InsertPolls(results.Polls);
+        await database.Save();
+
+        throw null;
     }
 
-    public async Task WriteCacheAsync(PollResult results)
+    private async Task<RawPolls> ReadCache()
     {
-        await using FileStream fs = new(cachefile.FullName, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read);
-        await using BinaryWriter wr = new(fs);
-
-        wr.Write(DateTime.UtcNow.Ticks);
-
-        foreach (Poll result in results.Polls.OrderBy(r => r.Date))
-            result.Serialize(wr);
-
-        wr.Flush();
-
-        await fs.FlushAsync();
-    }
-
-    public PollResult ReadCache()
-    {
-        try
+        if (await database.Load())
         {
-            using FileStream fs = new(cachefile.FullName, FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite);
-            using BinaryReader rd = new(fs);
+            List<RawPoll> polls = [];
 
-            DateTime created = new(rd.ReadInt64());
-            DateTime now = DateTime.UtcNow;
+            await foreach (RawPoll poll in database.FetchAllPolls())
+                polls.Add(poll);
 
-            if (Math.Abs((now - created).TotalSeconds) < MAX_CACHE_LIFETIME_SECONDS)
-            {
-                List<Poll> results = [];
-
-                while (Poll.TryDeserialize(rd) is Poll result)
-                    results.Add(result);
-
-                return new(results.OrderBy(r => r.Date));
-            }
+            return new(polls);
         }
-        catch (EndOfStreamException)
-        {
-        }
-
-        return PollResult.Empty;
+        else
+            return RawPolls.Empty;
     }
 
-    public async Task<PollResult> FetchAsync()
+    public async Task<RawPolls> FetchAsync()
     {
-        PollResult results = ReadCache();
+        RawPolls results = await ReadCache();
 
         if (results.PollCount == 0)
         {
@@ -520,14 +422,14 @@ public sealed partial class PollFetcher(FileInfo cachefile)
         return results;
     }
 
-    public static async Task<PollResult> FetchAllPollsAsync()
+    public static async Task<RawPolls> FetchAllPollsAsync()
     {
         IDictionary<string, HtmlDocument> documents = await FetchHTMLDocuments();
-        ConcurrentBag<Poll> results = [];
+        ConcurrentBag<RawPoll> results = [];
 
         Parallel.ForEach(documents, kvp => ParseHTMLDocument(kvp.Value, kvp.Key).Do(results.Add));
 
-        return new(results.OrderBy(r => r.Date));
+        return new RawPolls(results);
     }
 
     private static async Task<HtmlDocument> GetHTMLAsync(string uri)
@@ -578,9 +480,7 @@ public sealed partial class PollFetcher(FileInfo cachefile)
         return results;
     }
 
-    private static string NormalizeURI(string uri) => Normalize(uri).Replace(BASE_URL_FEDERAL, "").TrimEnd(".htm");
-
-    private static IEnumerable<Poll> ParseHTMLDocument(HtmlDocument document, string source_uri)
+    private static IEnumerable<RawPoll> ParseHTMLDocument(HtmlDocument document, string source_uri)
     {
         HtmlNodeCollection tables = document.DocumentNode.SelectNodes("//table[@class='wilko']");
         State? state = null;
@@ -588,7 +488,7 @@ public sealed partial class PollFetcher(FileInfo cachefile)
         source_uri = NormalizeURI(source_uri);
 
         foreach ((State s, string uri) in BASE_URL_STATES)
-            if (source_uri.Contains(NormalizeURI(uri)))
+            if (NormalizeURI(uri) is { } base_uri && (base_uri.Contains(source_uri) || source_uri.Contains(base_uri)))
             {
                 state = s;
 
@@ -636,7 +536,7 @@ public sealed partial class PollFetcher(FileInfo cachefile)
                             cells.AddRange(Enumerable.Repeat(cell, colspan - 1));
                     }
 
-                string normalized_joined = Normalize(cells.Select(cell => cell.InnerText).StringJoin(" "));
+                string normalized_joined = NormalizeText(cells.Select(cell => cell.InnerText).StringJoin(" "));
                 DateTime? date = TryFindDate(normalized_joined);
 
                 date ??= TryFindDateRange(normalized_joined)?.End;
@@ -644,14 +544,14 @@ public sealed partial class PollFetcher(FileInfo cachefile)
                 if (date is null || header.Keys.Max() >= cells.Count)
                     continue; // TODO : find better solution
 
-                string pollster = pollster_index is null || pollster_index >= cells.Count ? source_uri : Normalize(cells[pollster_index.Value].InnerText);
+                string pollster = pollster_index is null || pollster_index >= cells.Count ? source_uri : NormalizeText(cells[pollster_index.Value].InnerText);
                 int? participants = participant_index.HasValue && participant_index < cells.Count && int.TryParse(cells[participant_index.Value].InnerText, out int i) ? i : null;
                 Dictionary<Party, double> votes = Party.All.ToDictionary(LINQ.id, _ => 0d);
 
                 foreach ((int index, Party party) in header)
                     foreach (string text in cells[index].ChildNodes
                                                         .SplitBy(node => node.Name == "br")
-                                                        .Select(chunk => Normalize(chunk.Select(node => node.InnerText)
+                                                        .Select(chunk => NormalizeText(chunk.Select(node => node.InnerText)
                                                                                         .StringJoin(" ")
                                                                                         .Replace("%", "")
                                                                                         .Replace(',', '.'))))
@@ -673,15 +573,27 @@ public sealed partial class PollFetcher(FileInfo cachefile)
         }
     }
 
-    public static string Normalize(string text) => HttpUtility.HtmlDecode(text)
-                                                              .Trim()
-                                                              .ToLowerInvariant()
-                                                              .RemoveDiacritics()
-                                                              .Replace('•', '.')
-                                                              .Replace('–', '-') // en dash
-                                                              .Replace('—', '-') // em dash
-                                                              .Replace('‒', '-') // fig dash
-                                                              .Replace('―', '-');// hor. bar
+    private static string NormalizeURI(string uri)
+    {
+        uri = NormalizeText(uri)
+             .Replace(BASE_URL_FEDERAL, "")
+             .Replace(".html", ".htm");
+
+        if (!uri.EndsWith(".htm"))
+            uri += ".htm";
+
+        return uri;
+    }
+
+    public static string NormalizeText(string text) => HttpUtility.HtmlDecode(text)
+                                                                  .Trim()
+                                                                  .ToLowerInvariant()
+                                                                  .RemoveDiacritics()
+                                                                  .Replace('•', '.')
+                                                                  .Replace('–', '-') // en dash
+                                                                  .Replace('—', '-') // em dash
+                                                                  .Replace('‒', '-') // fig dash
+                                                                  .Replace('―', '-');// hor. bar
 
     public static DateTime? TryFindDate(string text)
     {
