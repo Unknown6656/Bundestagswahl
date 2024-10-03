@@ -8,6 +8,7 @@ using Unknown6656.Console;
 using Bundestagswahl;
 
 
+
 await using IPollDatabase poll_db = new BinaryPollDatabase(new("poll-cache.bin"));
 using Renderer renderer = new(poll_db)
 {

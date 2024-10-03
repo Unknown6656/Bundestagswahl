@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Text;
 using System.Linq;
@@ -142,9 +142,9 @@ public sealed class Renderer
 
     public Map Map => _render_size switch
     {
-        RenderSize.Small => Map.SmallMap,
-        RenderSize.Medium => Map.MediumMap,
         RenderSize.Large => Map.LargeMap,
+        RenderSize.Medium => Map.MediumMap,
+        _ => Map.SmallMap,
     };
 
 
@@ -234,13 +234,21 @@ public sealed class Renderer
         else
         {
             int timeplot_height = (int)double.Clamp(height * height * .006, 20, height * .4);
-            (MergedPollHistory historic, MergedPoll? display) = FetchPolls();
 
             RenderFrame(width, height, timeplot_height, clear);
             RenderMap();
             RenderSourceSelection(Map.Width + 6, 30, timeplot_height);
-            RenderHistoricPlot(width, timeplot_height, historic);
-            RenderResults(width, height, timeplot_height, display);
+
+            if ((_invalidate | RenderInvalidation.PollResults
+                             | RenderInvalidation.Compass
+                             | RenderInvalidation.Coalitions
+                             | RenderInvalidation.HistoricPlot) != 0)
+            {
+                (MergedPollHistory historic, MergedPoll? display) = FetchPolls();
+
+                RenderHistoricPlot(width, timeplot_height, historic);
+                RenderResults(width, height, timeplot_height, display);
+            }
 
             Console.ResetGraphicRenditions();
 
@@ -253,18 +261,13 @@ public sealed class Renderer
         List<State?> states = _selected_states.SelectWhere(kvp => kvp.Value, kvp => (State?)kvp.Key).ToList();
 
         if (_state_values.All(s => states.Contains(s)))
-            states.Add(null);
+            states = [null];
         else if (states.Contains(State.BE))
             states.AddRange([State.BE_W, State.BE_O]);
 
         if (RawPolls?.Polls is { Length: > 0 } polls)
         {
-            MergedPollHistory history = new(from p in polls
-                                            where p.Date >= _min_poll_date
-                                               && p.Date <= _max_poll_date
-                                               && states.Contains(p.State)
-                                            group p by p.Date into g
-                                            select new MergedPoll([.. g]));
+            MergedPollHistory history = RawPolls[_min_poll_date, _max_poll_date, states];
 
             _selected_end_date = _selected_end_date > _max_poll_date ? _max_poll_date : _selected_end_date;
             _selected_start_date = _selected_start_date < _min_poll_date ? _min_poll_date : _selected_start_date;
@@ -970,7 +973,7 @@ public sealed class Renderer
 
         Console.ForegroundColor = ConsoleColor.Gray;
         Console.Write('(');
-        Console.Write(coalition?.CoalitionParties?.Select(party => $"{party.Color.ToVT520(ColorMode.Foreground)}{party.Identifier.ToString().ToUpper()}\e[m").StringJoin(", "));
+        Console.Write(coalition?.CoalitionParties?.Select(static party => $"{party.Color.ToVT520(ColorMode.Foreground)}{party.Identifier.ToString().ToUpper()}\e[m").StringJoin(", "));
         Console.ForegroundColor = ConsoleColor.Gray;
         Console.Write(')');
 

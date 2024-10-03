@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using System.Diagnostics.CodeAnalysis;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -323,7 +323,7 @@ public sealed class BinaryPollDatabase
             while (RawPoll.TryDeserialize(rd) is RawPoll result)
                 results.Add(result);
 
-            _polls = new(results.OrderBy(p => p.Date));
+            _polls = new(results.OrderBy(static p => p.Date));
 
             return true;
         }
@@ -357,7 +357,7 @@ public sealed class BinaryPollDatabase
 
     public Task InsertPolls(IEnumerable<RawPoll> polls)
     {
-        _polls = new(polls.Concat(_polls.Polls).OrderBy(p => p.Date));
+        _polls = new(polls.Concat(_polls.Polls).OrderBy(static p => p.Date));
 
         return Task.CompletedTask;
     }
@@ -516,7 +516,7 @@ public sealed partial class PollFetcher(IPollDatabase database)
     }
 
     private static string[] GetMorePollingLinks(HtmlDocument document, string selector = "//p[@class='navi'][1]/a[@href]") =>
-        document.DocumentNode.SelectNodes(selector) is { } nodes ? [.. nodes.Select(node => node.GetAttributeValue("href", ""))] : [];
+        document.DocumentNode.SelectNodes(selector) is { } nodes ? [.. nodes.Select(static node => node.GetAttributeValue("href", ""))] : [];
 
     private static async Task<HtmlDocument> DownloadHTMLDocument(string uri)
     {
@@ -606,7 +606,7 @@ public sealed partial class PollFetcher(IPollDatabase database)
                         participant_index = index;
                 }
 
-            foreach (HtmlNode row in table.SelectNodes("*/tr")?.Where(row => row.ParentNode.Name is "table" or "tbody") ?? [])
+            foreach (HtmlNode row in table.SelectNodes("*/tr")?.Where(static row => row.ParentNode.Name is "table" or "tbody") ?? [])
             {
                 List<HtmlNode> cells = new(toprow.Count);
 
@@ -619,8 +619,8 @@ public sealed partial class PollFetcher(IPollDatabase database)
                             cells.AddRange(Enumerable.Repeat(cell, colspan - 1));
                     }
 
-                string normalized_joined = NormalizeText(cells.Select(cell => cell.InnerText).StringJoin(" "));
-                DateTime? date = TryFindDate(normalized_joined);
+                string normalized_joined = NormalizeText(cells.Select(static cell => cell.InnerText).StringJoin(" "));
+                DateOnly? date = TryFindDate(normalized_joined);
 
                 date ??= TryFindDateRange(normalized_joined)?.End;
 
@@ -629,12 +629,12 @@ public sealed partial class PollFetcher(IPollDatabase database)
 
                 string pollster = pollster_index is null || pollster_index >= cells.Count ? source_uri : NormalizeText(cells[pollster_index.Value].InnerText);
                 int? participants = participant_index.HasValue && participant_index < cells.Count && int.TryParse(cells[participant_index.Value].InnerText, out int i) ? i : null;
-                Dictionary<Party, double> votes = Party.All.ToDictionary(LINQ.id, _ => 0d);
+                Dictionary<Party, double> votes = Party.All.ToDictionary(LINQ.id, static _ => 0d);
 
                 foreach ((int index, Party party) in header)
                     foreach (string text in cells[index].ChildNodes
-                                                        .SplitBy(node => node.Name == "br")
-                                                        .Select(chunk => NormalizeText(chunk.Select(node => node.InnerText)
+                                                        .SplitBy(static node => node.Name == "br")
+                                                        .Select(static chunk => NormalizeText(chunk.Select(static node => node.InnerText)
                                                                                         .StringJoin(" ")
                                                                                         .Replace("%", "")
                                                                                         .Replace(',', '.'))))

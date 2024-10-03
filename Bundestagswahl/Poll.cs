@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text;
@@ -115,7 +115,7 @@ public sealed class RawPoll
 
     public bool IsFederal => State is null;
 
-    public Party StrongestParty => Results.OrderByDescending(kvp => kvp.Value).FirstOrDefault().Key ?? Party.__OTHER__;
+    public Party StrongestParty => Results.OrderByDescending(static kvp => kvp.Value).FirstOrDefault().Key ?? Party.__OTHER__;
 
     internal IReadOnlyDictionary<Party, double> Results { get; }
 
@@ -156,7 +156,7 @@ public sealed class RawPoll
     }
 
     public override string ToString() =>
-        $"{Date:yyyy-MM-dd}, {State?.ToString() ?? "BUND"} {Results.Select(kvp => $", {kvp.Key.Identifier}={kvp.Value:P1}").StringConcat()} ({SourceURI ?? "unknown"})";
+        $"{Date:yyyy-MM-dd}, {State?.ToString() ?? "BUND"} {Results.Select(static kvp => $", {kvp.Key.Identifier}={kvp.Value:P1}").StringConcat()} ({SourceURI ?? "unknown"})";
 
     internal void Serialize(BinaryWriter writer)
     {
@@ -239,18 +239,46 @@ public sealed class RawPoll
     }
 }
 
-// TODO : check whether we need this class or if we can merge its functionality into "PollHistory"
-public sealed class RawPolls
+public sealed class PollHistory
 {
-    public static RawPolls Empty { get; } = new([]);
+    public static PollHistory Empty { get; } = new([]);
+
 
     public int PollCount => Polls.Length;
 
     public RawPoll[] Polls { get; }
 
+    public DateOnly[] Dates { get; }
+
+    public MergedPoll this[DateOnly date, params State?[] states] => this[date, states as IEnumerable<State?>];
+
+    public MergedPoll this[DateOnly date, IEnumerable<State?> states] => GetSlice(date, states);
+
+    public MergedPollHistory this[DateOnly? lower, DateOnly? upper, params State?[] states] => this[lower, upper, states as IEnumerable<State?>];
+
+    public MergedPollHistory this[DateOnly? lower, DateOnly? upper, IEnumerable<State?> states] => GetRange(lower, upper, states);
 
 
-    public RawPolls(IEnumerable<RawPoll> polls) => Polls = [.. polls.OrderBy(p => p.Date)];
+    public PollHistory(IEnumerable<RawPoll> polls)
+    {
+        Polls = [.. polls.OrderBy(static p => p.Date)];
+        Dates = [.. Polls.Select(static p => p.Date).Distinct()];
+    }
+
+    public MergedPoll GetSlice(DateOnly date, IEnumerable<State?> states) => new(Polls.ToArrayWhere(p => p.Date == date && states.Contains(p.State)));
+
+    public MergedPollHistory GetRange(DateOnly? lower, DateOnly? upper, IEnumerable<State?> states)
+    {
+        if (lower is { } && upper is { } && lower > upper)
+            (lower, upper) = (upper, lower);
+
+        return new(from p in Polls
+                   where (lower is null || p.Date >= lower)
+                      && (upper is null || p.Date <= upper)
+                      && states.Contains(p.State)
+                   group p by p.Date into g
+                   select new MergedPoll([.. g]));
+    }
 
     public string AsCSV()
     {
@@ -287,9 +315,6 @@ public sealed class RawPolls
         return sb.ToString();
     }
 }
-
-
-
 
 public sealed class MergedPoll
     : IPoll
@@ -353,9 +378,9 @@ public sealed class MergedPoll
 
         if (polls.Length > 0)
         {
-            States = polls.SelectWhere(p => p.State.HasValue, p => p.State!.Value).Distinct().ToArray();
-            EarliestDate = polls.Min(p => p.Date);
-            LatestDate = polls.Max(p => p.Date);
+            States = polls.SelectWhere(static p => p.State.HasValue, static p => p.State!.Value).Distinct().ToArray();
+            EarliestDate = polls.Min(static p => p.Date);
+            LatestDate = polls.Max(static p => p.Date);
 
             Dictionary<Party, double> results = [];
             double total = 0;
@@ -382,7 +407,7 @@ public sealed class MergedPoll
                 results[party] /= total;
 
             Results = new ReadOnlyDictionary<Party, double>(results);
-            StrongestParty = Results.OrderByDescending(kvp => kvp.Value).FirstOrDefault().Key ?? Party.__OTHER__;
+            StrongestParty = Results.OrderByDescending(static kvp => kvp.Value).FirstOrDefault().Key ?? Party.__OTHER__;
         }
         else
         {
@@ -397,7 +422,7 @@ public sealed class MergedPoll
     }
 
     public override string ToString() =>
-        $"{EarliestDate:yyyy-MM-dd}-{LatestDate:yyyy-MM-dd}, {States.Select(s => s.ToString() ?? "BUND").StringJoin(", ")} {Results.Select(kvp => $", {kvp.Key.Identifier}={kvp.Value:P1}").StringConcat()} ({Polls.Length} polls)";
+        $"{EarliestDate:yyyy-MM-dd}-{LatestDate:yyyy-MM-dd}, {States.Select(static s => s.ToString() ?? "BUND").StringJoin(", ")} {Results.Select(static kvp => $", {kvp.Key.Identifier}={kvp.Value:P1}").StringConcat()} ({Polls.Length} polls)";
 
     public static implicit operator RawPoll[](MergedPoll poll) => poll.Polls;
 
@@ -416,13 +441,13 @@ public sealed class MergedPollHistory(IEnumerable<MergedPoll> polls)
 
     public int PollCount => Polls.Length;
 
-    public MergedPoll[] Polls { get; } = [.. polls.OrderByDescending(p => p.LatestDate)];
+    public MergedPoll[] Polls { get; } = [.. polls.OrderByDescending(static p => p.LatestDate)];
 
     public MergedPoll? MostRecentPoll => Polls.FirstOrDefault();
 
     public MergedPoll? OldestPoll => Polls.LastOrDefault();
 
-    public DateTime[] PollingDates { get; } = [.. polls.Select(p => p.LatestDate).Distinct().OrderByDescending(LINQ.id)];
+    public DateOnly[] PollingDates { get; } = [.. polls.Select(static p => p.LatestDate).Distinct().OrderByDescending(LINQ.id)];
 
 
     //public Poll? MostRecent() => Polls.FirstOrDefault();
