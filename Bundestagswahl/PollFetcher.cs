@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 using System.Diagnostics.CodeAnalysis;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -21,7 +21,6 @@ using Unknown6656.Generics;
 using Unknown6656.Common;
 
 namespace Bundestagswahl;
-
 
 
 public interface IPollDatabase
@@ -240,7 +239,7 @@ public class SQLitePollDatabase
 
     //public async Task<DateTime?> GetLastUpdated()
     //{
-    //    await foreach (DateTime dt in ExecuteCommand<DateTime>("SELECT [DateFetched] FROM [FetcherInfo] WHERE [__zero__] = 0"))
+    //    await foreach (DateTime dt in ExecuteCommand<DateOnly>("SELECT [DateFetched] FROM [FetcherInfo] WHERE [__zero__] = 0"))
     //        return dt;
 
     //    return null;
@@ -295,7 +294,7 @@ public class SQLitePollDatabase
     }
 
 
-    private record _poll_info(int ID, DateTime Date, string? Pollster, string? Source, bool Synthetic, int? State);
+    private record _poll_info(int ID, DateOnly Date, string? Pollster, string? Source, bool Synthetic, int? State);
     private record _poll_result(int PollID, string Party, double Percentage);
 }
 
@@ -303,13 +302,13 @@ public sealed class BinaryPollDatabase
     : IPollDatabase
 {
     private readonly FileInfo _dump_file;
-    private RawPolls _polls;
+    private PollHistory _polls;
 
 
     public BinaryPollDatabase(FileInfo dumpfile)
     {
         _dump_file = dumpfile;
-        _polls = RawPolls.Empty;
+        _polls = PollHistory.Empty;
     }
 
     public bool Load()
@@ -348,7 +347,7 @@ public sealed class BinaryPollDatabase
 
     public Task Clear()
     {
-        _polls = RawPolls.Empty;
+        _polls = PollHistory.Empty;
 
         if (_dump_file.Exists)
             _dump_file.Delete();
@@ -379,16 +378,16 @@ public sealed class BinaryPollDatabase
     }
 }
 
-file record PollInterpolator(RawPolls Polls)
+file record PollInterpolator(PollHistory Polls)
 {
-    public RawPolls Interpolate()
+    public PollHistory Interpolate()
     {
         List<RawPoll> results = [];
-        DateTime[] dates = [.. Polls.Polls
+        DateOnly[] dates = [.. Polls.Polls
                                     .Select(p => p.Date)
                                     .Distinct()];
 
-        foreach (DateTime date in dates)
+        foreach (DateOnly date in dates)
         {
             List<RawPoll> polls = [.. Polls.Polls
                                            .Where(p => p.Date == date)
@@ -413,7 +412,7 @@ file record PollInterpolator(RawPolls Polls)
                     result = Party.All.ToDictionary(LINQ.id, p => prev[p]);
                 else if (prev is { } && next is { })
                 {
-                    double interpolation = (date - prev.Date) / (next.Date - prev.Date);
+                    double interpolation = (date.ToDateTime() - prev.Date.ToDateTime()) / (next.Date.ToDateTime() - prev.Date.ToDateTime());
 
                     result = Party.All.ToDictionary(LINQ.id, p => double.Lerp(prev[p], next[p], interpolation));
                 }
@@ -430,7 +429,7 @@ file record PollInterpolator(RawPolls Polls)
 public sealed partial class PollFetcher(IPollDatabase database)
 {
     public const long MAX_CACHE_LIFETIME_SECONDS = 3600 * 24 * 7; // keep cache for a maximum of one week.
-    public static DateTime MIN_DATE { set; get; } = new(1990, 01, 01);
+    public static DateOnly MIN_DATE { set; get; } = new(1990, 01, 01);
 
     private const string BASE_URL_FEDERAL = "https://www.wahlrecht.de/umfragen/";
     private static readonly Dictionary<State, string> BASE_URL_STATES = new()
@@ -468,14 +467,14 @@ public sealed partial class PollFetcher(IPollDatabase database)
     public IPollDatabase PollDatabase => database;
 
 
-    private async Task WriteCacheAsync(RawPolls results)
+    private async Task WriteCacheAsync(PollHistory results)
     {
         await database.InsertPolls(results.Polls);
 
         database.Save();
     }
 
-    private async Task<RawPolls> ReadCache()
+    private async Task<PollHistory> ReadCache()
     {
         if (database.Load())
         {
@@ -487,12 +486,12 @@ public sealed partial class PollFetcher(IPollDatabase database)
             return new(polls);
         }
         else
-            return RawPolls.Empty;
+            return PollHistory.Empty;
     }
 
-    public async Task<RawPolls> FetchAsync()
+    public async Task<PollHistory> FetchAsync()
     {
-        RawPolls results = await ReadCache();
+        PollHistory results = await ReadCache();
 
         if (results.PollCount == 0)
         {
@@ -504,14 +503,14 @@ public sealed partial class PollFetcher(IPollDatabase database)
         return results;
     }
 
-    private static async Task<RawPolls> FetchFromHTML()
+    private static async Task<PollHistory> FetchFromHTML()
     {
         IDictionary<string, HtmlDocument> documents = await DownloadHTMLDocuments();
         ConcurrentBag<RawPoll> results = [];
 
         Parallel.ForEach(documents, kvp => ParseHTMLDocument(kvp.Value, kvp.Key).Do(results.Add));
 
-        RawPolls polls = new(results);
+        PollHistory polls = new(results);
 
         return new PollInterpolator(polls).Interpolate();
     }
@@ -679,20 +678,20 @@ public sealed partial class PollFetcher(IPollDatabase database)
                                                                   .Replace('‒', '-') // fig dash
                                                                   .Replace('―', '-');// hor. bar
 
-    public static DateTime? TryFindDate(string text)
+    public static DateOnly? TryFindDate(string text)
     {
         foreach (Match match in GenerateRegexDate().Matches(text))
         {
             string format = match.Value.Contains('-') ? "yyyy-MM-dd" : "dd.MM.yyyy";
 
-            if (DateTime.TryParseExact(match.Value, format, null, DateTimeStyles.None, out DateTime date))
+            if (DateOnly.TryParseExact(match.Value, format, null, DateTimeStyles.None, out DateOnly date))
                 return date;
         }
 
         return null;
     }
 
-    public static (DateTime Start, DateTime End)? TryFindDateRange(string text)
+    public static (DateOnly Start, DateOnly End)? TryFindDateRange(string text)
     {
         foreach (Match match in GenerateRegexDateRange().Matches(text))
         {
@@ -705,7 +704,7 @@ public sealed partial class PollFetcher(IPollDatabase database)
             if (end.CountOccurences(".") == 2)
                 end = "01." + end;
 
-            if (DateTime.TryParse(start, out DateTime s) && DateTime.TryParse(end, out DateTime e))
+            if (DateOnly.TryParse(start, out DateOnly s) && DateOnly.TryParse(end, out DateOnly e))
                 return (s, e);
         }
 

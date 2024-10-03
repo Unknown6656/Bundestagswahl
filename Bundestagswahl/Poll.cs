@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text;
@@ -12,7 +12,7 @@ namespace Bundestagswahl;
 
 public interface IPoll
 {
-    public DateTime Date { get; }
+    public DateOnly Date { get; }
 
     public Party StrongestParty { get; }
 
@@ -37,7 +37,7 @@ public sealed class Coalition
 
     public IPoll UnderlyingPoll { get; }
 
-    public DateTime Date => UnderlyingPoll.Date;
+    public DateOnly Date => UnderlyingPoll.Date;
 
 
     public double this[Party party] => _values.TryGetValue(party, out double percentage) ? percentage : 0;
@@ -100,10 +100,10 @@ file enum RawPollFlags
 public sealed class RawPoll
     : IPoll
 {
-    public static RawPoll Empty { get; } = new(DateTime.UnixEpoch, null, null, null, true, new Dictionary<Party, double>());
+    public static RawPoll Empty { get; } = new(new(1970, 1, 1), null, null, null, true, new Dictionary<Party, double>());
 
 
-    public DateTime Date { get; }
+    public DateOnly Date { get; }
 
     public string? Pollster { get; }
 
@@ -122,7 +122,7 @@ public sealed class RawPoll
     public double this[Party p] => Results.ContainsKey(p) ? Results[p] : 0;
 
 
-    public RawPoll(DateTime date, State? state, string? pollster, string? source_uri, bool synthetic, Dictionary<Party, double> values)
+    public RawPoll(DateOnly date, State? state, string? pollster, string? source_uri, bool synthetic, Dictionary<Party, double> values)
     {
         Date = date;
         State = state;
@@ -141,7 +141,7 @@ public sealed class RawPoll
         Results = new ReadOnlyDictionary<Party, double>(values);
     }
 
-    public RawPoll(DateTime date, State? state, string? pollster, string? source_uri, bool synthetic, Dictionary<string, double> values)
+    public RawPoll(DateOnly date, State? state, string? pollster, string? source_uri, bool synthetic, Dictionary<string, double> values)
         : this(date, state, pollster, source_uri, synthetic, new Func<Dictionary<Party, double>>(() =>
         {
             Dictionary<Party, double> percentages = [];
@@ -160,7 +160,9 @@ public sealed class RawPoll
 
     internal void Serialize(BinaryWriter writer)
     {
-        writer.Write(Date.Ticks);
+        writer.Write((ushort)Date.Year);
+        writer.Write((byte)Date.Month);
+        writer.Write((byte)Date.Day);
 
         RawPollFlags flags = RawPollFlags.None
                            | (State is not null ? RawPollFlags.State_NotNull : 0)
@@ -192,7 +194,9 @@ public sealed class RawPoll
     {
         try
         {
-            long ticks = reader.ReadInt64();
+            ushort year = reader.ReadUInt16();
+            byte month = reader.ReadByte();
+            byte day = reader.ReadByte();
             RawPollFlags flags = (RawPollFlags)reader.ReadByte();
             State? state = null;
             string? pollster = null;
@@ -226,7 +230,7 @@ public sealed class RawPoll
                     results[Party.__OTHER__] += result;
             }
 
-            return new(new(ticks), state, pollster, source_uri, synth, results);
+            return new(new(year, month, day), state, pollster, source_uri, synth, results);
         }
         catch
         {
@@ -324,11 +328,11 @@ public sealed class MergedPoll
                                                                 orderby perc descending
                                                                 select (party, perc)];
 
-    public DateTime EarliestDate { get; }
+    public DateOnly EarliestDate { get; }
 
-    public DateTime LatestDate { get; }
+    public DateOnly LatestDate { get; }
 
-    DateTime IPoll.Date => LatestDate;
+    DateOnly IPoll.Date => LatestDate;
 
     internal IReadOnlyDictionary<Party, double> Results { get; }
 
@@ -382,10 +386,12 @@ public sealed class MergedPoll
         }
         else
         {
+            DateTime now = DateTime.UtcNow;
+
             States = [];
             EarliestDate =
-            LatestDate = DateTime.UtcNow;
-            Results = Party.All.ToDictionary(LINQ.id, p => 0d);
+            LatestDate = new(now.Year, now.Month, now.Day);
+            Results = Party.All.ToDictionary(LINQ.id, static p => 0d);
             StrongestParty = Party.__OTHER__;
         }
     }
@@ -398,6 +404,11 @@ public sealed class MergedPoll
     public static implicit operator MergedPoll(RawPoll[] polls) => new(polls);
 }
 
+
+
+
+
+// TODO : check if we still need this class
 public sealed class MergedPollHistory(IEnumerable<MergedPoll> polls)
 {
     public static MergedPollHistory Empty { get; } = new([]);
@@ -424,12 +435,12 @@ public sealed class MergedPollHistory(IEnumerable<MergedPoll> polls)
 
     //public Poll[] In(State? state) => Polls.Where(p => p.State == state).ToArray();
 
-    //public Poll[] During(DateTime earliest, DateTime latest) => Polls.Where(p => p.Date >= earliest && p.Date <= latest).ToArray();
+    //public Poll[] During(DateOnly earliest, DateOnly latest) => Polls.Where(p => p.Date >= earliest && p.Date <= latest).ToArray();
 
-    //public Poll[] During(DateTime earliest, DateTime latest, State state) => Polls.Where(p => p.Date >= earliest && p.Date <= latest && p.State == state).ToArray();
+    //public Poll[] During(DateOnly earliest, DateOnly latest, State state) => Polls.Where(p => p.Date >= earliest && p.Date <= latest && p.State == state).ToArray();
 
 
-    public MergedPoll? GetMostRecentAt(DateTime date) => Polls.SkipWhile(p => p.LatestDate > date).FirstOrDefault();
+    public MergedPoll? GetMostRecentAt(DateOnly date) => Polls.SkipWhile(p => p.LatestDate > date).FirstOrDefault();
 
     public string AsCSV()
     {

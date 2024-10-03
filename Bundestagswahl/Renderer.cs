@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Text;
 using System.Linq;
@@ -8,7 +8,6 @@ using Unknown6656.Generics;
 using Unknown6656.Runtime;
 using Unknown6656.Console;
 using Unknown6656.Common;
-using System.IO;
 
 namespace Bundestagswahl;
 
@@ -106,12 +105,12 @@ public sealed class Renderer
     ];
 
 
-    private DateTime? _min_poll_date;
-    private DateTime? _max_poll_date;
-    private DateTime? _selected_start_date;
-    private DateTime? _selected_end_date;
-    private DateTime? _selected_date;
-    private readonly Dictionary<State, bool> _selected_states = _state_values.ToDictionary(LINQ.id, s => true);
+    private DateOnly? _min_poll_date;
+    private DateOnly? _max_poll_date;
+    private DateOnly? _selected_start_date;
+    private DateOnly? _selected_end_date;
+    private DateOnly? _selected_date;
+    private readonly Dictionary<State, bool> _selected_states = _state_values.ToDictionary(LINQ.id, static s => true);
     private readonly ConsoleState _console_state;
 
     private StateCursorPosition _state_cursor = StateCursorPosition.Federal;
@@ -123,7 +122,7 @@ public sealed class Renderer
 
     public bool IsActive { get; private set; } = true;
 
-    public RawPolls? RawPolls { get; private set; } = null;
+    public PollHistory? RawPolls { get; private set; } = null;
 
     public PollFetcher PollFetcher { get; }
 
@@ -298,7 +297,7 @@ public sealed class Renderer
             _min_poll_date = _max_poll_date = _selected_start_date = _selected_end_date = null;
     }
 
-    public async Task<RawPolls> RenderFetchingPrompt(Func<Task<RawPolls>> task)
+    public async Task<PollHistory> RenderFetchingPrompt(Func<Task<PollHistory>> task)
     {
         (int x, int y) = RenderModalPrompt("Umfrageergebnisse werden geladen...\nBitte warten.", ConsoleColor.Blue, ConsoleColor.DarkBlue);
 
@@ -334,7 +333,7 @@ public sealed class Renderer
             }
         });
 
-        RawPolls result = await task();
+        PollHistory result = await task();
         completed = true;
 
         await spinner;
@@ -474,7 +473,7 @@ public sealed class Renderer
         RenderHoverUnderline(x, y + 1, width.Value, hover);
     }
 
-    private static void RenderDateSelector(int x, int y, string description, int width, DateTime? date, DateTime? min, DateTime? max, bool? hover)
+    private static void RenderDateSelector(int x, int y, string description, int width, DateOnly? date, DateOnly? min, DateOnly? max, bool? hover)
     {
         width -= 15;
         description = description.PadLeft(width) + "  ";
@@ -621,8 +620,8 @@ public sealed class Renderer
             return;
 
         double max_perc = 1;
-        DateTime end_date = DateTime.UtcNow;
-        DateTime start_date = end_date;
+        DateOnly end_date = DateTime.UtcNow.ToDateOnly();
+        DateOnly start_date = end_date;
         int left = Map.Width + 33;
 
         width -= left;
@@ -634,13 +633,13 @@ public sealed class Renderer
             end_date = historic.MostRecentPoll!.LatestDate;
         }
 
-        DateTime get_date(double d)
+        DateOnly get_date(double d)
         {
             d = double.IsFinite(d) ? double.Clamp(d, 0, 1) : 1;
 
-            long t = (long)(d * (end_date.Ticks - start_date.Ticks)) + start_date.Ticks;
+            long t = (long)(d * (end_date.ToDateTime().Ticks - start_date.ToDateTime().Ticks)) + start_date.ToDateTime().Ticks;
 
-            return new(t);
+            return new DateTime(t).ToDateOnly();
         }
 
         int graph_height = height - 5;
@@ -675,17 +674,17 @@ public sealed class Renderer
         }
 
         Dictionary<Party, double> prev = Party.All.ToDictionary(LINQ.id, _ => 0d);
-        DateTime dateselector = get_date(.75); // <--- TODO : change this
+        DateOnly dateselector = get_date(.75); // <--- TODO : change this
 
         for (int x = 0; x <= graph_width; ++x)
         {
-            DateTime date = get_date((double)x / graph_width);
+            DateOnly date = get_date((double)x / graph_width);
             MergedPoll? poll = historic.GetMostRecentAt(date);
             bool current = dateselector < date;
 
             if (current)
             {
-                dateselector = DateTime.MaxValue;
+                dateselector = DateTime.UtcNow.ToDateOnly();
 
                 Console.ForegroundColor = poll?.StrongestParty.Color ?? ConsoleColor.White;
 
@@ -762,7 +761,7 @@ public sealed class Renderer
 
             active = _source_cursor is SourceCursorPosition.DateSelector && _current_view is Views.Source;
 
-            RenderDateSelector(left, 10, "DATUM", 23, DateTime.UnixEpoch, _min_poll_date, _max_poll_date, active);
+            RenderDateSelector(left, 10, "DATUM", 23, new(1970, 1, 1), _min_poll_date, _max_poll_date, active);
         }
         else
         {
