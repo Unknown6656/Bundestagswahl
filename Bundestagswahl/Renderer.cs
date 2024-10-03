@@ -51,7 +51,7 @@ public sealed class Renderer
     #region ONLY FOR CACHING REASONS
 
     private static readonly StateCursorPosition[] _state_cursor_values = Enum.GetValues<StateCursorPosition>();
-    private static readonly State[] _state_values = Enum.GetValues<State>();
+    internal static readonly State[] _state_values = Enum.GetValues<State>();
     private static readonly State[] _state_values_lfa = [State.BW, State.BY, State.HE, State.HH];
     private static readonly State[] _state_values_pop_growth = [State.BY, State.BW, State.HE, State.RP, State.NW, State.NI, State.HH, State.SH, State.BE];
     private static readonly State[] _state_values_pop = [State.NW, State.BY, State.BW, State.NI];

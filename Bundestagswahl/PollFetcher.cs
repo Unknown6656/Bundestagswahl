@@ -213,6 +213,7 @@ public class SQLitePollDatabase
             [Date]      TEXT    NOT NULL,
             [Pollster]  TEXT    NULL,
             [Source]    TEXT    NULL,
+            [Synthetic] INTEGER NOT NULL DEFAULT 0,
             [State]     INTEGER NULL,
 
             PRIMARY KEY ([ID])
@@ -256,8 +257,8 @@ public class SQLitePollDatabase
 
             sb.AppendLine($"""
 
-            INSERT INTO [PollInfo] ([ID], [Date], [Pollster], [Source], [State])
-            VALUES ({(++id).ToString(CultureInfo.InvariantCulture)}, '{poll.Date:yyyy-MM-dd}', '{poll.Pollster}', '{poll.SourceURI}', {state});
+            INSERT INTO [PollInfo] ([ID], [Date], [Pollster], [Source], [Synthetic], [State])
+            VALUES ({(++id).ToString(CultureInfo.InvariantCulture)}, '{poll.Date:yyyy-MM-dd}', '{poll.Pollster}', '{poll.SourceURI}', {(poll.IsSynthetic ? 1 : 0)}, {state});
 
             INSERT OR IGNORE INTO [PollResults] ([PollID], [Party], [Percentage])
             VALUES {poll.Results.Select(kvp => $"({id.ToString(CultureInfo.InvariantCulture)}, '{kvp.Key.Identifier,3}', {kvp.Value})").StringJoin(",\n       ")};
@@ -274,7 +275,7 @@ public class SQLitePollDatabase
 
     public async IAsyncEnumerable<RawPoll> FetchAllPolls()
     {
-        await foreach (_poll_info? info in ExecuteCommand<_poll_info>("SELECT [ID], [Date], [Pollster], [Source], [State] FROM [PollInfo]"))
+        await foreach (_poll_info? info in ExecuteCommand<_poll_info>("SELECT [ID], [Date], [Pollster], [Source], [Synthetic], [State] FROM [PollInfo]"))
             if (info is { })
             {
                 Dictionary<Party, double> results = [];
@@ -283,7 +284,7 @@ public class SQLitePollDatabase
                     if (result is { } && Party.TryGetParty(result.Party) is Party party)
                         results[party] = result.Percentage;
 
-                yield return new(info.Date, info.State is int s ? (State)s : null, info.Pollster ?? "(none)", info.Source ?? "(none)", results);
+                yield return new(info.Date, info.State is int s ? (State)s : null, info.Pollster ?? "(none)", info.Source ?? "(none)", info.Synthetic, results);
             }
     }
 
@@ -294,7 +295,7 @@ public class SQLitePollDatabase
     }
 
 
-    private record _poll_info(int ID, DateTime Date, string? Pollster, string? Source, int? State);
+    private record _poll_info(int ID, DateTime Date, string? Pollster, string? Source, bool Synthetic, int? State);
     private record _poll_result(int PollID, string Party, double Percentage);
 }
 
@@ -378,6 +379,47 @@ public sealed class BinaryPollDatabase
     }
 }
 
+file record PollInterpolator(RawPolls Polls)
+{
+    public RawPolls Interpolate()
+    {
+        List<RawPoll> results = [];
+        DateTime[] dates = [.. Polls.Polls
+                                    .Select(p => p.Date)
+                                    .Distinct()];
+
+        foreach (DateTime date in dates)
+        {
+            List<RawPoll> polls = [.. Polls.Polls
+                                           .Where(p => p.Date == date)
+                                           .DistinctBy(p => p.State)];
+
+            results.AddRange(polls);
+
+            foreach (State? state in Renderer._state_values
+                                             .Cast<State?>()
+                                             .Append((State?)null)
+                                             .Except(polls.Select(p => p.State)))
+            {
+                RawPoll? next = Polls.Polls.FirstOrDefault(p => p.Date >= date && p.State == state);
+                RawPoll? prev = Polls.Polls.LastOrDefault(p => p.Date <= date && p.State == state);
+
+                if (next is null || prev is null)
+                    ;
+
+                // TODO : interpolate
+
+                //results.Add(new(date, state, null, null, true, new()
+                //{
+
+                //}));
+            }
+        }
+
+        return new(results);
+    }
+}
+
 public sealed partial class PollFetcher(IPollDatabase database)
 {
     public const long MAX_CACHE_LIFETIME_SECONDS = 3600 * 24 * 7; // keep cache for a maximum of one week.
@@ -424,8 +466,6 @@ public sealed partial class PollFetcher(IPollDatabase database)
         await database.InsertPolls(results.Polls);
 
         database.Save();
-
-        throw null;
     }
 
     private async Task<RawPolls> ReadCache()
@@ -459,15 +499,20 @@ public sealed partial class PollFetcher(IPollDatabase database)
 
     private static async Task<RawPolls> FetchFromHTML()
     {
-        IDictionary<string, HtmlDocument> documents = await FetchHTMLDocuments();
+        IDictionary<string, HtmlDocument> documents = await DownloadHTMLDocuments();
         ConcurrentBag<RawPoll> results = [];
 
         Parallel.ForEach(documents, kvp => ParseHTMLDocument(kvp.Value, kvp.Key).Do(results.Add));
 
-        return new RawPolls(results);
+        RawPolls polls = new(results);
+
+        return new PollInterpolator(polls).Interpolate();
     }
 
-    private static async Task<HtmlDocument> GetHTMLAsync(string uri)
+    private static string[] GetMorePollingLinks(HtmlDocument document, string selector = "//p[@class='navi'][1]/a[@href]") =>
+        document.DocumentNode.SelectNodes(selector) is { } nodes ? [.. nodes.Select(node => node.GetAttributeValue("href", ""))] : [];
+
+    private static async Task<HtmlDocument> DownloadHTMLDocument(string uri)
     {
         HtmlDocument doc = new();
         using HttpClient client = new();
@@ -477,17 +522,14 @@ public sealed partial class PollFetcher(IPollDatabase database)
         return doc;
     }
 
-    private static string[] GetMorePollingLinks(HtmlDocument document, string selector = "//p[@class='navi'][1]/a[@href]") =>
-        document.DocumentNode.SelectNodes(selector) is { } nodes ? [.. nodes.Select(node => node.GetAttributeValue("href", ""))] : [];
-
-    private static async Task<IDictionary<string, HtmlDocument>> FetchHTMLDocuments()
+    private static async Task<IDictionary<string, HtmlDocument>> DownloadHTMLDocuments()
     {
         ConcurrentDictionary<string, HtmlDocument> results = [];
         ConcurrentHashSet<string> open = [];
 
         async Task fetch(string uri)
         {
-            HtmlDocument html = results[uri] = await GetHTMLAsync(uri);
+            HtmlDocument html = results[uri] = await DownloadHTMLDocument(uri);
 
             foreach (string link in GetMorePollingLinks(html))
                 if (link.StartsWith("http", StringComparison.OrdinalIgnoreCase))
@@ -603,7 +645,7 @@ public sealed partial class PollFetcher(IPollDatabase database)
                     if (votes[party] <= 0)
                         votes.Remove(party);
 
-                yield return new(date.Value, state, pollster, source_uri, votes);
+                yield return new(date.Value, state, pollster, source_uri, false, votes);
             }
         }
     }

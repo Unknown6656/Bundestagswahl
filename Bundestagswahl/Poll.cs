@@ -86,17 +86,30 @@ public sealed class Coalition
     }
 }
 
+[Flags]
+file enum RawPollFlags
+    : byte
+{
+    None = 0,
+    IsSynthetic = 1,
+    State_NotNull = 2,
+    Pollster_NotNull = 4,
+    SourceURI_NotNull = 8,
+}
+
 public sealed class RawPoll
     : IPoll
 {
-    public static RawPoll Empty { get; } = new(DateTime.UnixEpoch, null, "<none>", "<none>", new Dictionary<Party, double>());
+    public static RawPoll Empty { get; } = new(DateTime.UnixEpoch, null, null, null, true, new Dictionary<Party, double>());
 
 
     public DateTime Date { get; }
 
-    public string Pollster { get; }
+    public string? Pollster { get; }
 
-    public string SourceURI { get; }
+    public string? SourceURI { get; }
+
+    public bool IsSynthetic { get; }
 
     public State? State { get; }
 
@@ -109,12 +122,13 @@ public sealed class RawPoll
     public double this[Party p] => Results.ContainsKey(p) ? Results[p] : 0;
 
 
-    public RawPoll(DateTime date, State? state, string pollster, string source_uri, Dictionary<Party, double> values)
+    public RawPoll(DateTime date, State? state, string? pollster, string? source_uri, bool synthetic, Dictionary<Party, double> values)
     {
         Date = date;
         State = state;
         Pollster = pollster;
         SourceURI = source_uri;
+        IsSynthetic = synthetic;
 
         if (!values.ContainsKey(Party.__OTHER__))
             values[Party.__OTHER__] = Math.Max(0, 1 - values.Values.Sum());
@@ -127,8 +141,8 @@ public sealed class RawPoll
         Results = new ReadOnlyDictionary<Party, double>(values);
     }
 
-    public RawPoll(DateTime date, State? state, string pollster, string source_uri, Dictionary<string, double> values)
-        : this(date, state, pollster, source_uri, new Func<Dictionary<Party, double>>(() =>
+    public RawPoll(DateTime date, State? state, string? pollster, string? source_uri, bool synthetic, Dictionary<string, double> values)
+        : this(date, state, pollster, source_uri, synthetic, new Func<Dictionary<Party, double>>(() =>
         {
             Dictionary<Party, double> percentages = [];
 
@@ -142,19 +156,29 @@ public sealed class RawPoll
     }
 
     public override string ToString() =>
-        $"{Date:yyyy-MM-dd}, {State?.ToString() ?? "BUND"} {Results.Select(kvp => $", {kvp.Key.Identifier}={kvp.Value:P1}").StringConcat()} ({SourceURI})";
+        $"{Date:yyyy-MM-dd}, {State?.ToString() ?? "BUND"} {Results.Select(kvp => $", {kvp.Key.Identifier}={kvp.Value:P1}").StringConcat()} ({SourceURI ?? "unknown"})";
 
     internal void Serialize(BinaryWriter writer)
     {
         writer.Write(Date.Ticks);
 
-        if (State is null)
-            writer.Write((byte)0xff);
-        else
+        RawPollFlags flags = RawPollFlags.None
+                           | (State is not null ? RawPollFlags.State_NotNull : 0)
+                           | (Pollster is not null ? RawPollFlags.Pollster_NotNull : 0)
+                           | (SourceURI is not null ? RawPollFlags.SourceURI_NotNull : 0)
+                           | (IsSynthetic ? RawPollFlags.IsSynthetic : 0);
+
+        writer.Write((byte)flags);
+
+        if (State != null)
             writer.Write((byte)State);
 
-        writer.Write(Pollster);
-        writer.Write(SourceURI);
+        if (Pollster != null)
+            writer.Write(Pollster);
+
+        if (SourceURI != null)
+            writer.Write(SourceURI);
+
         writer.Write(Results.Count);
 
         foreach ((Party party, double result) in Results)
@@ -169,9 +193,21 @@ public sealed class RawPoll
         try
         {
             long ticks = reader.ReadInt64();
-            State? state = reader.ReadByte() is byte b and not 0xff ? (State)b : null;
-            string pollster = reader.ReadString();
-            string source_uri = reader.ReadString();
+            RawPollFlags flags = (RawPollFlags)reader.ReadByte();
+            State? state = null;
+            string? pollster = null;
+            string? source_uri = null;
+
+            if (flags.HasFlag(RawPollFlags.State_NotNull))
+                state = (State)reader.ReadByte();
+
+            if (flags.HasFlag(RawPollFlags.Pollster_NotNull))
+                pollster = reader.ReadString();
+
+            if (flags.HasFlag(RawPollFlags.SourceURI_NotNull))
+                source_uri = reader.ReadString();
+
+            bool synth = flags.HasFlag(RawPollFlags.IsSynthetic);
             int count = reader.ReadInt32();
 
             Dictionary<Party, double> results = new()
@@ -190,7 +226,7 @@ public sealed class RawPoll
                     results[Party.__OTHER__] += result;
             }
 
-            return new(new(ticks), state, pollster, source_uri, results);
+            return new(new(ticks), state, pollster, source_uri, synth, results);
         }
         catch
         {
@@ -198,6 +234,58 @@ public sealed class RawPoll
         }
     }
 }
+
+// TODO : check whether we need this class or if we can merge its functionality into "PollHistory"
+public sealed class RawPolls
+{
+    public static RawPolls Empty { get; } = new([]);
+
+    public int PollCount => Polls.Length;
+
+    public RawPoll[] Polls { get; }
+
+
+
+    public RawPolls(IEnumerable<RawPoll> polls) => Polls = [.. polls.OrderBy(p => p.Date)];
+
+    public string AsCSV()
+    {
+        Party[] parties = Party.All;
+        StringBuilder sb = new();
+
+        sb.AppendLine($"id,date,pollster,source,state,{parties.Select(p => p.Identifier).StringJoin(",")}");
+
+        for (int i = 0; i < Polls.Length; i++)
+        {
+            RawPoll poll = Polls[i];
+
+            sb.AppendLine($"{i},{poll.Date:yyyy-MM-dd},\"{poll.Pollster}\",\"{poll.SourceURI}\",{poll.State?.ToString() ?? "DE"},{parties.Select(p => poll[p].ToString("P1")).StringJoin(",")}");
+        }
+
+        return sb.ToString();
+    }
+
+    public string AsCSV(State? state)
+    {
+        Party[] parties = Party.All;
+        StringBuilder sb = new();
+
+        sb.AppendLine($"id,date,pollster,source,state,{parties.Select(p => p.Identifier).StringJoin(",")}");
+
+        for (int i = 0; i < Polls.Length; i++)
+        {
+            RawPoll poll = Polls[i];
+
+            if (poll.State == state || (state is State.BE && poll.State is State.BE_W or State.BE_O))
+                sb.AppendLine($"{i},{poll.Date:yyyy-MM-dd},\"{poll.Pollster}\",\"{poll.SourceURI}\",{poll.State},{parties.Select(p => poll[p].ToString("P1")).StringJoin(",")}");
+        }
+
+        return sb.ToString();
+    }
+}
+
+
+
 
 public sealed class MergedPoll
     : IPoll
@@ -308,52 +396,6 @@ public sealed class MergedPoll
     public static implicit operator RawPoll[](MergedPoll poll) => poll.Polls;
 
     public static implicit operator MergedPoll(RawPoll[] polls) => new(polls);
-}
-
-// TODO : check whether we need this class or if we can merge its functionality into "PollHistory"
-public sealed class RawPolls(IEnumerable<RawPoll> polls)
-{
-    public static RawPolls Empty { get; } = new([]);
-
-    public int PollCount => Polls.Length;
-
-    public RawPoll[] Polls { get; } = [.. polls.OrderByDescending(p => p.Date)];
-
-
-    public string AsCSV()
-    {
-        Party[] parties = Party.All;
-        StringBuilder sb = new();
-
-        sb.AppendLine($"id,date,pollster,source,state,{parties.Select(p => p.Identifier).StringJoin(",")}");
-
-        for (int i = 0; i < Polls.Length; i++)
-        {
-            RawPoll poll = Polls[i];
-
-            sb.AppendLine($"{i},{poll.Date:yyyy-MM-dd},\"{poll.Pollster}\",\"{poll.SourceURI}\",{poll.State?.ToString() ?? "DE"},{parties.Select(p => poll[p].ToString("P1")).StringJoin(",")}");
-        }
-
-        return sb.ToString();
-    }
-
-    public string AsCSV(State? state)
-    {
-        Party[] parties = Party.All;
-        StringBuilder sb = new();
-
-        sb.AppendLine($"id,date,pollster,source,state,{parties.Select(p => p.Identifier).StringJoin(",")}");
-
-        for (int i = 0; i < Polls.Length; i++)
-        {
-            RawPoll poll = Polls[i];
-
-            if (poll.State == state || (state is State.BE && poll.State is State.BE_W or State.BE_O))
-                sb.AppendLine($"{i},{poll.Date:yyyy-MM-dd},\"{poll.Pollster}\",\"{poll.SourceURI}\",{poll.State},{parties.Select(p => poll[p].ToString("P1")).StringJoin(",")}");
-        }
-
-        return sb.ToString();
-    }
 }
 
 public sealed class MergedPollHistory(IEnumerable<MergedPoll> polls)
