@@ -403,16 +403,23 @@ file record PollInterpolator(RawPolls Polls)
             {
                 RawPoll? next = Polls.Polls.FirstOrDefault(p => p.Date >= date && p.State == state);
                 RawPoll? prev = Polls.Polls.LastOrDefault(p => p.Date <= date && p.State == state);
+                string? pollster = prev?.Pollster ?? next?.Pollster;
+                string? source = prev?.SourceURI ?? next?.SourceURI;
+                Dictionary<Party, double>? result = null;
 
-                if (next is null || prev is null)
-                    ;
+                if (prev is null && next is { })
+                    result = Party.All.ToDictionary(LINQ.id, p => next[p]);
+                else if (prev is { } && next is null)
+                    result = Party.All.ToDictionary(LINQ.id, p => prev[p]);
+                else if (prev is { } && next is { })
+                {
+                    double interpolation = (date - prev.Date) / (next.Date - prev.Date);
 
-                // TODO : interpolate
+                    result = Party.All.ToDictionary(LINQ.id, p => double.Lerp(prev[p], next[p], interpolation));
+                }
 
-                //results.Add(new(date, state, null, null, true, new()
-                //{
-
-                //}));
+                if (result is { })
+                    results.Add(new(date, state, pollster, source, true, result));
             }
         }
 
