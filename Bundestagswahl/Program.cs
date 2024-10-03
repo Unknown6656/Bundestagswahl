@@ -8,8 +8,8 @@ using Unknown6656.Console;
 using Bundestagswahl;
 
 
-
-using Renderer renderer = new()
+await using IPollDatabase poll_db = new BinaryPollDatabase(new("poll-cache.bin"));
+using Renderer renderer = new(poll_db)
 {
     CurrentRenderSize = RenderSize.Large
 };

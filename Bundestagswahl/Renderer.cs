@@ -70,7 +70,6 @@ public sealed class Renderer
     };
     private static readonly ConsoleColor _dark = new(.27);
 
-    public static readonly FileInfo CACHE_FILE = new("poll-cache.bin");
     public const ConsoleKey KEY_VIEW_SWITCH = ConsoleKey.Tab;
     public const ConsoleKey KEY_STATE_ENTER = ConsoleKey.Enter;
     public const ConsoleKey KEY_RIGHT = ConsoleKey.RightArrow;
@@ -150,7 +149,7 @@ public sealed class Renderer
     };
 
 
-    public Renderer()
+    public Renderer(IPollDatabase poll_db)
     {
         _console_state = Console.CurrentConsoleState;
 
@@ -161,7 +160,7 @@ public sealed class Renderer
         Console.InputEncoding = Encoding.UTF8;
         Console.CursorVisible = false;
 
-        PollFetcher = new(new(CACHE_FILE));
+        PollFetcher = new(poll_db);
     }
 
     ~Renderer() => Dispose(false);

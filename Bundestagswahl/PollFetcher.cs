@@ -1,25 +1,19 @@
-﻿// use the following flag if you want to use SQLITE an an in-memory caching layer.
-//#define USE_SQLITE_DB
-
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
+using System.Diagnostics.CodeAnalysis;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Globalization;
+using System.Data.Common;
+using System.Reflection;
 using System.Net.Http;
+using System.Text;
 using System.Linq;
 using System.Web;
 using System.IO;
 using System;
 
-#if USE_SQLITE_DB
-using System.Diagnostics.CodeAnalysis;
-using System.Data.Common;
-using System.Reflection;
-using System.Text;
-
 using Microsoft.Data.Sqlite;
-#endif
 
 using HtmlAgilityPack;
 
@@ -29,34 +23,38 @@ using Unknown6656.Common;
 namespace Bundestagswahl;
 
 
-public sealed class PollDatabase
+
+public interface IPollDatabase
+    : IAsyncDisposable
 {
-#if USE_SQLITE_DB
+    public bool Load();
+    public void Save();
+    public Task Clear();
+
+    public IAsyncEnumerable<RawPoll> FetchAllPolls();
+    public Task InsertPolls(IEnumerable<RawPoll> polls);
+}
+
+public class SQLitePollDatabase
+    : IPollDatabase
+{
+    private readonly FileInfo _sqlite_file;
     private SqliteConnection _sqlite_conn;
-#else
-    private RawPolls _polls;
-#endif
-    private readonly FileInfo _dump_file;
 
 
-    public PollDatabase(FileInfo dumpfile)
+    public SQLitePollDatabase(FileInfo sqlite_file)
     {
-        _dump_file = dumpfile;
-#if USE_SQLITE_DB
+        _sqlite_file = sqlite_file;
         _sqlite_conn = null!;
 
         Connect().GetAwaiter().GetResult();
-#else
-        _polls = RawPolls.Empty;
-#endif
     }
 
-#if USE_SQLITE_DB
     private async Task Connect()
     {
         SqliteConnectionStringBuilder builder = new()
         {
-            DataSource = ":memory:",
+            DataSource = _sqlite_file.FullName,
             Mode = SqliteOpenMode.ReadWriteCreate,
             Cache = SqliteCacheMode.Private,
         };
@@ -69,58 +67,24 @@ public sealed class PollDatabase
         """);
         await CreateTables();
     }
-#endif
 
-    public async Task<bool> Load()
+    public bool Load() => true;
+
+    public void Save()
     {
-        if (_dump_file.Exists)
-        {
-            List<RawPoll> results = [];
-
-            using FileStream fs = new(_dump_file.FullName, FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite);
-            using BinaryReader rd = new(fs);
-
-            while (RawPoll.TryDeserialize(rd) is RawPoll result)
-                results.Add(result);
-#if USE_SQLITE_DB
-            await InsertPolls(results);
-#else
-            _polls = new(results.OrderBy(p => p.Date));
-#endif
-            return true;
-        }
-
-        return false;
     }
 
-    public async Task Save()
-    {
-        if (_dump_file.Exists)
-            _dump_file.Delete();
+    public Task Clear() => ExecuteCommand("""
+        TRUNCATE TABLE [PollInfo];
+        TRUNCATE TABLE [PollResults];
+    """);
 
-        await using FileStream fs = new(_dump_file.FullName, FileMode.Create, FileAccess.Write, FileShare.Read);
-        await using BinaryWriter wr = new(fs);
-
-#if USE_SQLITE_DB
-        await foreach (RawPoll poll in FetchAllPolls())
-#else
-        foreach (RawPoll poll in _polls.Polls)
-#endif
-            poll.Serialize(wr);
-
-        wr.Flush();
-    }
-
-#if USE_SQLITE_DB
     private async Task ResetConnection()
     {
         await _sqlite_conn.CloseAsync();
         await _sqlite_conn.DisposeAsync();
 
         _sqlite_conn = null!;
-
-        if (_dump_file.Exists)
-            _dump_file.Delete();
 
         await Connect();
     }
@@ -273,14 +237,14 @@ public sealed class PollDatabase
         );
     """);
 
-    public async Task<DateTime?> GetLastUpdated()
-    {
-        await foreach (DateTime dt in ExecuteCommand<DateTime>("SELECT [DateFetched] FROM [FetcherInfo] WHERE [__zero__] = 0"))
-            return dt;
+    //public async Task<DateTime?> GetLastUpdated()
+    //{
+    //    await foreach (DateTime dt in ExecuteCommand<DateTime>("SELECT [DateFetched] FROM [FetcherInfo] WHERE [__zero__] = 0"))
+    //        return dt;
 
-        return null;
-    }
-    
+    //    return null;
+    //}
+
     public async Task InsertPolls(IEnumerable<RawPoll> polls)
     {
         StringBuilder sb = new("BEGIN;");
@@ -307,7 +271,7 @@ public sealed class PollDatabase
 
         await ExecuteCommand(sb.ToString());
     }
-    
+
     public async IAsyncEnumerable<RawPoll> FetchAllPolls()
     {
         await foreach (_poll_info? info in ExecuteCommand<_poll_info>("SELECT [ID], [Date], [Pollster], [Source], [State] FROM [PollInfo]"))
@@ -322,7 +286,75 @@ public sealed class PollDatabase
                 yield return new(info.Date, info.State is int s ? (State)s : null, info.Pollster ?? "(none)", info.Source ?? "(none)", results);
             }
     }
-#else
+
+    public async ValueTask DisposeAsync()
+    {
+        await _sqlite_conn.CloseAsync();
+        await _sqlite_conn.DisposeAsync();
+    }
+
+
+    private record _poll_info(int ID, DateTime Date, string? Pollster, string? Source, int? State);
+    private record _poll_result(int PollID, string Party, double Percentage);
+}
+
+public sealed class BinaryPollDatabase
+    : IPollDatabase
+{
+    private readonly FileInfo _dump_file;
+    private RawPolls _polls;
+
+
+    public BinaryPollDatabase(FileInfo dumpfile)
+    {
+        _dump_file = dumpfile;
+        _polls = RawPolls.Empty;
+    }
+
+    public bool Load()
+    {
+        if (_dump_file.Exists)
+        {
+            List<RawPoll> results = [];
+
+            using FileStream fs = new(_dump_file.FullName, FileMode.OpenOrCreate, FileAccess.Read, FileShare.ReadWrite);
+            using BinaryReader rd = new(fs);
+
+            while (RawPoll.TryDeserialize(rd) is RawPoll result)
+                results.Add(result);
+
+            _polls = new(results.OrderBy(p => p.Date));
+
+            return true;
+        }
+
+        return false;
+    }
+
+    public void Save()
+    {
+        if (_dump_file.Exists)
+            _dump_file.Delete();
+
+        using FileStream fs = new(_dump_file.FullName, FileMode.Create, FileAccess.Write, FileShare.Read);
+        using BinaryWriter wr = new(fs);
+
+        foreach (RawPoll poll in _polls.Polls)
+            poll.Serialize(wr);
+
+        wr.Flush();
+    }
+
+    public Task Clear()
+    {
+        _polls = RawPolls.Empty;
+
+        if (_dump_file.Exists)
+            _dump_file.Delete();
+
+        return Task.CompletedTask;
+    }
+
     public Task InsertPolls(IEnumerable<RawPoll> polls)
     {
         _polls = new(polls.Concat(_polls.Polls).OrderBy(p => p.Date));
@@ -337,14 +369,16 @@ public sealed class PollDatabase
 
         await Task.CompletedTask;
     }
-#endif
 
+    public ValueTask DisposeAsync()
+    {
+        Save();
 
-    private record _poll_info(int ID, DateTime Date, string? Pollster, string? Source, int? State);
-    private record _poll_result(int PollID, string Party, double Percentage);
+        return ValueTask.CompletedTask;
+    }
 }
 
-public sealed partial class PollFetcher(PollDatabase database)
+public sealed partial class PollFetcher(IPollDatabase database)
 {
     public const long MAX_CACHE_LIFETIME_SECONDS = 3600 * 24 * 7; // keep cache for a maximum of one week.
     public static DateTime MIN_DATE { set; get; } = new(1990, 01, 01);
@@ -382,20 +416,21 @@ public sealed partial class PollFetcher(PollDatabase database)
     ];
 
 
-    public PollDatabase PollDatabase => database;
+    public IPollDatabase PollDatabase => database;
 
 
     private async Task WriteCacheAsync(RawPolls results)
     {
         await database.InsertPolls(results.Polls);
-        await database.Save();
+
+        database.Save();
 
         throw null;
     }
 
     private async Task<RawPolls> ReadCache()
     {
-        if (await database.Load())
+        if (database.Load())
         {
             List<RawPoll> polls = [];
 
@@ -414,7 +449,7 @@ public sealed partial class PollFetcher(PollDatabase database)
 
         if (results.PollCount == 0)
         {
-            results = await FetchAllPollsAsync();
+            results = await FetchFromHTML();
 
             await WriteCacheAsync(results);
         }
@@ -422,7 +457,7 @@ public sealed partial class PollFetcher(PollDatabase database)
         return results;
     }
 
-    public static async Task<RawPolls> FetchAllPollsAsync()
+    private static async Task<RawPolls> FetchFromHTML()
     {
         IDictionary<string, HtmlDocument> documents = await FetchHTMLDocuments();
         ConcurrentBag<RawPoll> results = [];
