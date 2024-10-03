@@ -1,5 +1,5 @@
-﻿global using Console = Unknown6656.Console.Console;
-global using ConsoleColor = Unknown6656.Console.ConsoleColor;
+﻿global using ConsoleColor = Unknown6656.Console.ConsoleColor;
+global using Console = Unknown6656.Console.Console;
 
 using System;
 
