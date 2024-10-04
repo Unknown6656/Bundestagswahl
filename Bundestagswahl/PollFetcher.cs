@@ -429,7 +429,7 @@ file record PollInterpolator(PollHistory Polls)
 public sealed partial class PollFetcher(IPollDatabase database)
 {
     public const long MAX_CACHE_LIFETIME_SECONDS = 3600 * 24 * 7; // keep cache for a maximum of one week.
-    public static DateOnly MIN_DATE { set; get; } = new(1990, 01, 01);
+    public static DateOnly MIN_DATE { set; get; } = new(1980, 01, 01);
 
     private const string BASE_URL_FEDERAL = "https://www.wahlrecht.de/umfragen/";
     private static readonly Dictionary<State, string> BASE_URL_STATES = new()
@@ -510,7 +510,10 @@ public sealed partial class PollFetcher(IPollDatabase database)
 
         Parallel.ForEach(documents, kvp => ParseHTMLDocument(kvp.Value, kvp.Key).Do(results.Add));
 
-        PollHistory polls = new(results);
+        PollHistory polls = new(from poll in results
+                                where poll.Date >= MIN_DATE
+                                   && poll[Party.__OTHER__] < .66
+                                select poll);
 
         return new PollInterpolator(polls).Interpolate();
     }
@@ -635,9 +638,9 @@ public sealed partial class PollFetcher(IPollDatabase database)
                     foreach (string text in cells[index].ChildNodes
                                                         .SplitBy(static node => node.Name == "br")
                                                         .Select(static chunk => NormalizeText(chunk.Select(static node => node.InnerText)
-                                                                                        .StringJoin(" ")
-                                                                                        .Replace("%", "")
-                                                                                        .Replace(',', '.'))))
+                                                                                                   .StringJoin(" ")
+                                                                                                   .Replace("%", "")
+                                                                                                   .Replace(',', '.'))))
                         if (double.TryParse(text, out double percentage))
                             votes[party] += percentage * .01;
                         else if (text.Split([' ', '\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries) is [string ident, string perc])
