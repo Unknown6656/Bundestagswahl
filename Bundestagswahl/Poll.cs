@@ -265,9 +265,9 @@ public sealed class PollHistory
         Dates = [.. Polls.Select(static p => p.Date).Distinct()];
     }
 
-    public DateOnly? GetPreviousDate(DateOnly date) => Array.BinarySearch(Dates, date) is int idx and > 0 ? Dates[idx - 1] : null;
+    public DateOnly? GetPreviousDate(DateOnly date) => Util.ApproximateBinarySearch(Dates, date) is int idx and > 0 ? Dates[idx - 1] : null;
 
-    public DateOnly? GetNextDate(DateOnly date) => Array.BinarySearch(Dates, date) is int idx and >= 0 && idx < Dates.Length - 1 ? Dates[idx + 1] : null;
+    public DateOnly? GetNextDate(DateOnly date) => Util.ApproximateBinarySearch(Dates, date) is int idx && idx < Dates.Length - 1 ? Dates[idx + 1] : null;
 
     public MergedPoll GetSlice(DateOnly date, IEnumerable<State?> states) => new(Polls.ToArrayWhere(p => p.Date == date && states.Contains(p.State)));
 
