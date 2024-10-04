@@ -1,3 +1,5 @@
+//#define ENABLE_HISTORIC_PLOT_SUBPIXEL_RENDERING
+
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Text;
@@ -785,7 +787,11 @@ public sealed class Renderer
                     else
                     {
                         int braille_right = (int)(ydiff * 4);
+#if ENABLE_HISTORIC_PLOT_SUBPIXEL_RENDERING
                         int braille_left = Math.Min(Math.Max(braille_right - percentage.CompareTo(prev[party]), 0), 4);
+#else
+                        int braille_left = braille_right;
+#endif
                         char braille = (char)(0x2800
                                             | (braille_right switch
                                             {

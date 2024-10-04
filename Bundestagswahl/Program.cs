@@ -8,10 +8,11 @@ using Unknown6656.Console;
 using Bundestagswahl;
 
 
+
 Console.CancelKeyPress += (_, evt) =>
 {
     Console.ResetGraphicRenditions();
-    Console.SetCursorPosition(0, Console.BufferHeight - 1);
+    Console.SetCursorPosition(0, Console.WindowHeight - 1);
 
     evt.Cancel = false;
 };
