@@ -865,7 +865,7 @@ public sealed class Renderer
             // TODO : ?
         }
 
-        RenderButton(left, 13, null, "DATEN AKTUALISIEREN", ConsoleColor.Default, false, false);
+        RenderButton(left, 14, 20, "DATEN AKTUALISIEREN", ConsoleColor.Default, false, false);
     }
 
     private void RenderResults(int width, int height, int timeplot_height, IPoll? poll)
@@ -1070,10 +1070,14 @@ public sealed class Renderer
         Console.Write(coalition?.CoalitionParties?.Select(static party => $"{party.Color.ToVT520(ColorMode.Foreground)}{party.Identifier.ToString().ToUpper()}\e[m").StringJoin(", "));
         Console.ForegroundColor = ConsoleColor.Gray;
         Console.Write(')');
-
-        Console.CursorLeft = left + width / 2 - 1;
         Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.Write('┴');
+
+        foreach (double d in new[] { .33, .5, .66 })
+        {
+            Console.CursorLeft = left + (int)(width * d) - 1;
+            Console.Write('┴');
+        }
+
         Console.CursorLeft = left;
 
         if (coalition is { })
