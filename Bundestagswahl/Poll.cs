@@ -250,6 +250,10 @@ public sealed class PollHistory
 
     public DateOnly[] Dates { get; }
 
+    public DateOnly? EarliestDate { get; }
+
+    public DateOnly? LatestDate { get; }
+
     public MergedPoll this[DateOnly date, params State?[] states] => this[date, states as IEnumerable<State?>];
 
     public MergedPoll this[DateOnly date, IEnumerable<State?> states] => GetSlice(date, states);
@@ -263,26 +267,45 @@ public sealed class PollHistory
     {
         Polls = [.. polls.OrderBy(static p => p.Date)];
         Dates = [.. Polls.Select(static p => p.Date).Distinct()];
+        EarliestDate = Dates.Length > 0 ? Dates[0] : null;
+        LatestDate = Dates.Length > 0 ? Dates[^1] : null;
     }
 
-    public DateOnly? GetPreviousDate(DateOnly date) => Util.ApproximateBinarySearch(Dates, date) is int idx and > 0 ? Dates[idx - 1] : null;
+    public DateOnly? GetPreviousDate(DateOnly date) => Util.ApproximateBinarySearch(Dates, date) is int idx and > 0 ? Dates[idx - 1] : EarliestDate;
 
-    public DateOnly? GetNextDate(DateOnly date) => Util.ApproximateBinarySearch(Dates, date) is int idx && idx < Dates.Length - 1 ? Dates[idx + 1] : null;
+    public DateOnly? GetNextDate(DateOnly date) => Util.ApproximateBinarySearch(Dates, date) is int idx && idx < Dates.Length - 1 ? Dates[idx + 1] : LatestDate;
 
     public MergedPoll GetSlice(DateOnly date, IEnumerable<State?> states) => new(Polls.ToArrayWhere(p => p.Date == date && states.Contains(p.State)));
 
     public MergedPollHistory GetRange(DateOnly? lower, DateOnly? upper, IEnumerable<State?> states)
     {
-        if (lower is { } && upper is { } && lower > upper)
+        lower ??= EarliestDate;
+        upper ??= LatestDate;
+
+        if (lower > upper)
             (lower, upper) = (upper, lower);
 
         return new(from p in Polls
-                   where (lower is null || p.Date >= lower)
-                      && (upper is null || p.Date <= upper)
+                   where p.Date >= lower
+                      && p.Date <= upper
                       && states.Contains(p.State)
                    group p by p.Date into g
                    select new MergedPoll([.. g]));
     }
+
+    //public Poll? MostRecent() => Polls.FirstOrDefault();
+
+    //public Poll[] MostRecent(int count) => Polls.Take(count).ToArray();
+
+    //public Poll? MostRecent(State? state) => Polls.Where(p => p.State == state).FirstOrDefault();
+
+    //public Poll[] MostRecent(State? state, int count) => Polls.Where(p => p.State == state).Take(count).ToArray();
+
+    //public Poll[] In(State? state) => Polls.Where(p => p.State == state).ToArray();
+
+    //public Poll[] During(DateOnly earliest, DateOnly latest) => Polls.Where(p => p.Date >= earliest && p.Date <= latest).ToArray();
+
+    //public Poll[] During(DateOnly earliest, DateOnly latest, State state) => Polls.Where(p => p.Date >= earliest && p.Date <= latest && p.State == state).ToArray();
 
     public string AsCSV()
     {
@@ -438,36 +461,27 @@ public sealed class MergedPoll
 
 
 // TODO : check if we still need this class
-public sealed class MergedPollHistory(IEnumerable<MergedPoll> polls)
+public sealed class MergedPollHistory
 {
     public static MergedPollHistory Empty { get; } = new([]);
 
 
     public int PollCount => Polls.Length;
 
-    public MergedPoll[] Polls { get; } = [.. polls.OrderByDescending(static p => p.LatestDate)];
+    public MergedPoll[] Polls { get; }
 
     public MergedPoll? MostRecentPoll => Polls.FirstOrDefault();
 
     public MergedPoll? OldestPoll => Polls.LastOrDefault();
 
-    public DateOnly[] PollingDates { get; } = [.. polls.Select(static p => p.LatestDate).Distinct().OrderByDescending(LINQ.id)];
+    public DateOnly[] PollingDates { get; }
 
 
-    //public Poll? MostRecent() => Polls.FirstOrDefault();
-
-    //public Poll[] MostRecent(int count) => Polls.Take(count).ToArray();
-
-    //public Poll? MostRecent(State? state) => Polls.Where(p => p.State == state).FirstOrDefault();
-
-    //public Poll[] MostRecent(State? state, int count) => Polls.Where(p => p.State == state).Take(count).ToArray();
-
-    //public Poll[] In(State? state) => Polls.Where(p => p.State == state).ToArray();
-
-    //public Poll[] During(DateOnly earliest, DateOnly latest) => Polls.Where(p => p.Date >= earliest && p.Date <= latest).ToArray();
-
-    //public Poll[] During(DateOnly earliest, DateOnly latest, State state) => Polls.Where(p => p.Date >= earliest && p.Date <= latest && p.State == state).ToArray();
-
+    public MergedPollHistory(IEnumerable<MergedPoll> polls)
+    {
+        Polls = [.. polls.OrderByDescending(static p => p.LatestDate)];
+        PollingDates = [.. Polls.Select(static p => p.LatestDate).Distinct()];
+    }
 
     public MergedPoll? GetMostRecentAt(DateOnly date) => Polls.SkipWhile(p => p.LatestDate > date).FirstOrDefault();
 

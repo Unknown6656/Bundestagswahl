@@ -128,6 +128,11 @@ public sealed class Renderer
     public const ConsoleKey KEY_LEFT = ConsoleKey.LeftArrow;
     public const ConsoleKey KEY_UP = ConsoleKey.UpArrow;
     public const ConsoleKey KEY_DOWN = ConsoleKey.DownArrow;
+    public const ConsoleKey KEY_PAGE_UP = ConsoleKey.PageUp;
+    public const ConsoleKey KEY_PAGE_DOWN = ConsoleKey.PageDown;
+    public const ConsoleKey KEY_HOME = ConsoleKey.Home;
+    public const ConsoleKey KEY_END = ConsoleKey.End;
+    public const ConsoleKey KEY_EXIT = ConsoleKey.Escape;
 
     public static Party[][] Coalitions { get; } = [
         [Party.CDU, Party.SPD],
@@ -158,12 +163,8 @@ public sealed class Renderer
     ];
 
 
-    private DateOnly? _min_poll_date;
-    private DateOnly? _max_poll_date;
-    private DateOnly? _selected_start_date;
-    private DateOnly? _selected_end_date;
-    private DateOnly? _selected_date;
-    private readonly Dictionary<State, bool> _selected_states = _state_values.ToDictionary(LINQ.id, static s => true);
+    private (DateOnly Start, DateOnly End, DateOnly Cursor)? _selected_range;
+    private readonly Dictionary<State, bool> _selected_states = _state_values.ToDictionary(LINQ.id, static s => false);
     private readonly ConsoleState _console_state;
 
     private StateCursorPosition _state_cursor = StateCursorPosition.Federal;
@@ -176,7 +177,7 @@ public sealed class Renderer
 
     public bool IsActive { get; private set; } = true;
 
-    public PollHistory? PollHistory { get; private set; } = null;
+    public PollHistory PollHistory { get; private set; }
 
     public PollFetcher PollFetcher { get; }
 
@@ -213,6 +214,7 @@ public sealed class Renderer
         Console.InputEncoding = Encoding.UTF8;
         Console.CursorVisible = false;
 
+        PollHistory = PollHistory.Empty;
         PollFetcher = new(poll_db);
     }
 
@@ -299,7 +301,8 @@ public sealed class Renderer
                                  | RenderInvalidation.Coalitions
                                  | RenderInvalidation.HistoricPlot) != 0)
                 {
-                    (MergedPollHistory historic, MergedPoll? display) = FetchPolls();
+                    MergedPollHistory historic = FetchPolls();
+                    MergedPoll? display = historic.Polls.FirstOrDefault(p => p.EarliestDate <= _selected_range?.Cursor && p.LatestDate >= _selected_range?.Cursor);
 
                     RenderHistoricPlot(width, timeplot_height, historic);
                     RenderResults(width, height, timeplot_height, display);
@@ -312,7 +315,51 @@ public sealed class Renderer
         }
     }
 
-    private (MergedPollHistory Historic, MergedPoll? Display) FetchPolls()
+    public async Task Run()
+    {
+        await FetchAllPollsAsync();
+
+        while (Console.ReadKey(true) is { Key: not KEY_EXIT } key)
+            HandleInput(key);
+    }
+
+    private async Task FetchAllPollsAsync()
+    {
+        PollHistory = await RenderFetchingPrompt(PollFetcher.FetchAsync);
+
+        foreach (State state in _selected_states.Keys)
+            _selected_states[state] = true;
+
+        AdjustTimeRanges();
+        Render(true);
+    }
+
+    private void AdjustTimeRanges()
+    {
+        if (PollHistory is { EarliestDate: DateOnly min, LatestDate: DateOnly max })
+        {
+            (DateOnly start, DateOnly end, DateOnly cursor) = _selected_range ?? (min, max, max);
+
+            if (min > max)
+                (min, max) = (max, min);
+
+            if (start > end)
+                (start, end) = (end, start);
+
+            if (start < min)
+                start = min;
+
+            if (end > max)
+                end = max;
+
+            cursor = cursor < start ? start : cursor > end ? end : cursor;
+            _selected_range = (start, end, cursor);
+        }
+        else
+            _selected_range = null;
+    }
+
+    private MergedPollHistory FetchPolls()
     {
         List<State?> states = _selected_states.SelectWhere(kvp => kvp.Value, kvp => (State?)kvp.Key).ToList();
 
@@ -321,54 +368,7 @@ public sealed class Renderer
         else if (states.Contains(State.BE))
             states.AddRange([State.BE_W, State.BE_O]);
 
-        if (PollHistory?.Polls is { Length: > 0 } polls)
-        {
-            MergedPollHistory history = PollHistory[_selected_start_date, _selected_end_date, states];
-
-            _selected_end_date = _selected_end_date > _max_poll_date ? _max_poll_date : _selected_end_date;
-            _selected_start_date = _selected_start_date < _min_poll_date ? _min_poll_date : _selected_start_date;
-            _selected_date = _selected_date < _min_poll_date ? _min_poll_date : _selected_date > _max_poll_date ? _max_poll_date : _selected_date;
-
-
-            MergedPoll? display = history.Polls.LastOrDefault(); // TODO <--- make this based on the current date selection
-
-
-            return (history, display);
-        }
-        else
-            return (MergedPollHistory.Empty, null);
-    }
-
-    public async Task FetchPollsAsync()
-    {
-        PollHistory = await RenderFetchingPrompt(PollFetcher.FetchAsync);
-
-        if (PollHistory.Dates is { Length:> 0 } dates)
-        {
-            _min_poll_date = dates[0];
-            _max_poll_date = dates[^1];
-
-            if ((_selected_start_date ?? _min_poll_date) <= _min_poll_date)
-                _selected_start_date = _min_poll_date;
-
-            if ((_selected_end_date ?? _max_poll_date) >= _max_poll_date)
-                _selected_end_date = _max_poll_date;
-
-            _selected_date ??= _selected_end_date;
-
-            if (_selected_date < _selected_start_date)
-                _selected_date = _selected_start_date;
-            else if (_selected_date > _selected_end_date)
-                _selected_date = _selected_end_date;
-        }
-        else
-            _min_poll_date =
-            _max_poll_date =
-            _selected_date =
-            _selected_start_date =
-            _selected_end_date = null;
-
-        Render(true);
+        return PollHistory[_selected_range?.Start, _selected_range?.End, states]; ;
     }
 
     public async Task<PollHistory> RenderFetchingPrompt(Func<Task<PollHistory>> task)
@@ -706,14 +706,19 @@ public sealed class Renderer
             end_date = historic.MostRecentPoll!.LatestDate;
         }
 
+        long start_ticks = start_date.ToDateTime().Ticks;
+        long end_ticks = end_date.ToDateTime().Ticks;
+
         DateOnly get_date(double d)
         {
             d = double.IsFinite(d) ? double.Clamp(d, 0, 1) : 1;
 
-            long t = (long)(d * (end_date.ToDateTime().Ticks - start_date.ToDateTime().Ticks)) + start_date.ToDateTime().Ticks;
+            long t = (long)(d * (end_ticks - start_ticks)) + start_ticks;
 
             return new DateTime(t).ToDateOnly();
         }
+        double get_xpos(DateOnly date) => (date.ToDateTime().Ticks - start_ticks) / (double)(end_ticks - start_ticks);
+
 
         int graph_height = height - 5;
         int graph_width = width - 15;
@@ -731,7 +736,7 @@ public sealed class Renderer
                 Console.CursorLeft += 7;
 
             Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.Write(y == 0 ? '┬' : y == graph_height ? '├' : '┼');
+            Console.Write(y == 0 ? '┬' : y == graph_height ? '└' : '┼');
 
             if (y != graph_height)
                 Console.ForegroundColor = _dark;
@@ -743,27 +748,24 @@ public sealed class Renderer
         {
             double d = index * 9d / graph_width;
 
-            Console.SetCursorPosition(left + index * 9 + (index == 0 ? 9 : 10), graph_height + 2);
+            Console.SetCursorPosition(left + index * 9 + 10, graph_height + 2);
             Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.Write(index == 0 ? '├' : '┼');
+            Console.Write('┼');
             Console.SetCursorPosition(left + index * 9 + 7, graph_height + 3);
             Console.ForegroundColor = ConsoleColor.Default;
             Console.Write(get_date(d).ToString("yyyy-MM"));
         }
 
         Dictionary<Party, double> prev = Party.All.ToDictionary(LINQ.id, _ => 0d);
-        DateOnly dateselector = get_date(.75); // <--- TODO : change this
+        int? selected_x = _selected_range?.Cursor is DateOnly sel ? (int)Math.Round(get_xpos(sel) * graph_width) : null;
 
         for (int x = 0; x <= graph_width; ++x)
         {
             DateOnly date = get_date((double)x / graph_width);
             MergedPoll? poll = historic.GetMostRecentAt(date);
-            bool current = dateselector < date;
 
-            if (current)
+            if (x == selected_x)
             {
-                dateselector = end_date.AddDays(1);
-
                 Console.ForegroundColor = poll?.StrongestParty.Color ?? ConsoleColor.White;
 
                 for (int y = 0; y < graph_height; ++y)
@@ -782,7 +784,7 @@ public sealed class Renderer
                     Console.SetCursorPosition(left + 10 + x, 2 + y);
                     Console.ForegroundColor = party.Color;
 
-                    if (current)
+                    if (x == selected_x)
                         Console.Write("⬤"); // *⬤◯
                     else
                     {
@@ -826,12 +828,12 @@ public sealed class Renderer
         Console.ResetGraphicRenditions();
         Console.ForegroundColor = ConsoleColor.White;
         Console.WriteBlock($"""
-        {PollHistory?.Polls?.Length ?? 0} Umfragen zwischen   
-        {_min_poll_date:yyyy-MM-dd} und {_max_poll_date:yyyy-MM-dd}
+        {PollHistory.Polls.Length,5} Umfragen zwischen
+        {PollHistory.EarliestDate:yyyy-MM-dd} und {PollHistory.LatestDate:yyyy-MM-dd}
         verfügbar.
         """, left, 2);
 
-        if (PollHistory?.Polls is { Length: > 0 } polls)
+        if (PollHistory.Polls.Length > 0)
         {
             int index = 0;
 
@@ -864,14 +866,14 @@ public sealed class Renderer
 
             bool active = _source_cursor is SourceCursorPosition.DateSelector && _current_view is Views.Source;
 
-            RenderDateSelector(left, 12, "DATUM", 23, _selected_date, active);
+            RenderDateSelector(left, 12, "DATUM", 23, _selected_range?.Cursor, active);
         }
         else
         {
             // TODO : ?
         }
 
-        RenderButton(left, 14, 20, "DATEN AKTUALISIEREN", ConsoleColor.Default, false, false);
+        RenderButton(left, 14, 24, "DATEN AKTUALISIEREN", ConsoleColor.Default, false, false);
     }
 
     private void RenderResults(int width, int height, int timeplot_height, IPoll? poll)
@@ -1096,7 +1098,7 @@ public sealed class Renderer
             }
     }
 
-    private static RenderInvalidation GetRenderInvalidateion(Views view) => view switch
+    private static RenderInvalidation GetRenderInvalidation(Views view) => view switch
     {
         Views.States => RenderInvalidation.StateSelector
                       | RenderInvalidation.Map,
@@ -1119,9 +1121,9 @@ public sealed class Renderer
                     int count = Enum.GetValues<Views>().Length;
                     RenderInvalidation invalidation = RenderInvalidation.FrameText;
 
-                    invalidation |= GetRenderInvalidateion(_current_view);
+                    invalidation |= GetRenderInvalidation(_current_view);
                     _current_view = (Views)(((int)_current_view + dir + count) % count);
-                    invalidation |= GetRenderInvalidateion(_current_view);
+                    invalidation |= GetRenderInvalidation(_current_view);
 
                     return invalidation;
 
@@ -1170,34 +1172,29 @@ public sealed class Renderer
                             _selected_states[state] = target_states.Contains(state);
                     }
 
-                    return RenderInvalidation.StateSelector
-                         | RenderInvalidation.Map
-                         | RenderInvalidation.PollResults
-                         | RenderInvalidation.HistoricPlot
-                         | RenderInvalidation.Coalitions
-                         | RenderInvalidation.Compass
-                         | RenderInvalidation.DataSource;
+                    return GetRenderInvalidation(Views.Historic)
+                         | GetRenderInvalidation(Views.Result)
+                         | GetRenderInvalidation(Views.Historic)
+                         | GetRenderInvalidation(Views.States);
 
                 #endregion
                 #region SOURCE / DATE SELECTION
 
-                case (KEY_RIGHT, Views.Source):
-                    _source_cursor = _source_cursor < SourceCursorPosition.DateSelector ? _source_cursor + 1 : _source_cursor;
+                case (KEY_LEFT or KEY_RIGHT, Views.Source):
+                    {
+                        int offs = key.Key == KEY_LEFT ? -1 : 1;
 
-                    return RenderInvalidation.DataSource;
-                case (KEY_LEFT, Views.Source):
-                    _source_cursor = _source_cursor > SourceCursorPosition.Button_Last40Years ? _source_cursor - 1 : _source_cursor;
+                        _source_cursor = _source_cursor < SourceCursorPosition.DateSelector ? _source_cursor + offs : _source_cursor;
 
-                    return RenderInvalidation.DataSource;
+                        return GetRenderInvalidation(Views.Source);
+                    }
                 case (KEY_ENTER, Views.Source) when _source_cursor <= SourceCursorPosition.Button_Last3Months:
                     {
                         bool changed = _source_cursor != _current_source;
 
                         _current_source = _source_cursor;
-                        _selected_date =
-                        _selected_end_date = _max_poll_date;
 
-                        if (_selected_end_date is { } end)
+                        if (PollHistory.LatestDate is { } end)
                         {
                             (int years, int months) = _current_source switch
                             {
@@ -1213,14 +1210,58 @@ public sealed class Renderer
                                 _ => (0, 0),
                             };
 
-                            _selected_start_date = end.AddYears(-years).AddMonths(-months);
+                            _selected_range = (
+                                end.AddYears(-years).AddMonths(-months),
+                                end,
+                                _selected_range?.Cursor ?? end
+                            );
                         }
 
-                        return changed ? RenderInvalidation.PollResults
-                                 | RenderInvalidation.Coalitions
-                                 | RenderInvalidation.Compass
-                                 | RenderInvalidation.HistoricPlot
-                                 | RenderInvalidation.DataSource : RenderInvalidation.None;
+                        AdjustTimeRanges();
+
+                        // TODO : invalidate only if dates have changed
+                        return changed ? GetRenderInvalidation(Views.Historic)
+                                       | GetRenderInvalidation(Views.Source)
+                                       | GetRenderInvalidation(Views.Result) : RenderInvalidation.None;
+                    }
+
+                #endregion
+                #region HISTORIC PLOT
+
+                case (KEY_RIGHT, Views.Historic):
+                case (KEY_LEFT, Views.Historic):
+                    {
+                        if (_selected_range is (DateOnly min, DateOnly max, DateOnly cursor))
+                        {
+                            _selected_range = (
+                                min,
+                                max,
+                                (key.Key == KEY_LEFT ? PollHistory.GetPreviousDate(cursor) : PollHistory.GetNextDate(cursor)) ?? cursor
+                            );
+
+                            AdjustTimeRanges();
+
+                            // TODO : invalidate only if dates have changed
+                            return GetRenderInvalidation(Views.Historic)
+                                 | GetRenderInvalidation(Views.Result)
+                                 | GetRenderInvalidation(Views.Source);
+                        }
+
+                        return RenderInvalidation.None;
+                    }
+                case (KEY_HOME or KEY_END, Views.Historic):
+                    {
+                        bool changed = false;
+
+                        if (_selected_range is (DateOnly start, DateOnly end, DateOnly prev))
+                        {
+                            _selected_range = (start, end, key.Key is KEY_HOME ? start : end);
+                            changed = prev != _selected_range?.Cursor;
+                        }
+
+                        return changed ? GetRenderInvalidation(Views.Historic)
+                                       | GetRenderInvalidation(Views.Result)
+                                       : RenderInvalidation.None;
                     }
 
                 #endregion
