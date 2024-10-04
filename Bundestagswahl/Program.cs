@@ -8,6 +8,13 @@ using Unknown6656.Console;
 using Bundestagswahl;
 
 
+Console.CancelKeyPress += (_, evt) =>
+{
+    Console.ResetGraphicRenditions();
+    Console.SetCursorPosition(0, Console.BufferHeight - 1);
+
+    evt.Cancel = false;
+};
 
 await using IPollDatabase poll_db = new BinaryPollDatabase(new("poll-cache.bin"));
 using Renderer renderer = new(poll_db)
@@ -16,19 +23,7 @@ using Renderer renderer = new(poll_db)
 };
 await using ConsoleResizeListener resize = new();
 
-resize.SizeChanged += (_, _, _, _) =>
-{
-    // fix rendering of modal form during resizing.
-
-    try
-    {
-        renderer.Render(true);
-    }
-    catch
-    {
-        renderer.Render(true); // do smth. if it fails the second time
-    }
-};
+resize.SizeChanged += (_, _, _, _) => renderer.Render(true);
 resize.Start();
 
 await renderer.FetchPollsAsync();

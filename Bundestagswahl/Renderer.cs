@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Text;
 using System.Linq;
@@ -118,6 +118,7 @@ public sealed class Renderer
         [RenderSize.Large] = (190, 99),
     };
     private static readonly ConsoleColor _dark = new(.27);
+    private static readonly object _render_mutex = new();
 
     public const ConsoleKey KEY_VIEW_SWITCH = ConsoleKey.Tab;
     public const ConsoleKey KEY_ENTER = ConsoleKey.Enter;
@@ -235,75 +236,77 @@ public sealed class Renderer
 
     public void Render(bool clear)
     {
-        if (clear)
+        lock (_render_mutex)
         {
-            InvalidateAll();
-            Console.FullClear();
-        }
-
-        (int min_width, int min_height) = _min_sizes[_render_size];
-        int width = Console.WindowWidth;
-        int height = Console.WindowHeight;
-
-        Console.CurrentGraphicRendition = new()
-        {
-            ForegroundColor = ConsoleColor.White,
-            BackgroundColor = ConsoleColor.Black,
-        };
-
-        if (OS.IsWindows)
-        {
-            Console.BufferHeight = Math.Min(Console.BufferHeight, height + 4);
-            Console.BufferWidth = Math.Min(Console.BufferWidth, width + 2);
-        }
-
-        if (width < min_width || height < min_height)
-            if (_render_size is RenderSize.Small)
+            if (clear)
             {
                 InvalidateAll();
 
                 Console.FullClear();
-                Console.CurrentGraphicRendition = new()
+                Console.ResetGraphicRenditions();
+            }
+
+            (int min_width, int min_height) = _min_sizes[_render_size];
+            int width = Console.WindowWidth;
+            int height = Console.WindowHeight;
+
+            if (OS.IsWindows)
+#pragma warning disable CA1416 // Validate platform compatibility
+                Console.SetBufferSize(
+                    Math.Max(Console.BufferWidth, width + 2),
+                    Math.Max(Console.BufferHeight, height + 4)
+                );
+#pragma warning restore CA1416
+
+            if (width < min_width || height < min_height)
+                if (_render_size is RenderSize.Small)
                 {
-                    ForegroundColor = ConsoleColor.Red,
-                    Intensity = TextIntensityMode.Bold,
-                };
-                Console.Write($"""
-                 ┌─────────────────────────────────────────────┐
-                 │    ⚠️ ⚠️ CONSOLE WINDOW TOO SMALL ⚠️ ⚠️     │
-                 ├─────────────────────────────────────────────┤
-                 │ Please resize this window to a minimum size │
-                 │ of {min_width,3} x {min_height,2}. Current window size: {width,3} x {height,2}  │
-                 │ You may alternatively reduce the font size. │
-                 └─────────────────────────────────────────────┘
-                """);
-            }
+                    InvalidateAll();
+
+                    Console.CurrentGraphicRendition = new()
+                    {
+                        BackgroundColor = ConsoleColor.DarkRed, // ConsoleColor.Default,
+                        ForegroundColor = ConsoleColor.White, // ConsoleColor.Red,
+                        Intensity = TextIntensityMode.Bold,
+                    };
+                    Console.FullClear();
+                    Console.Write($"""
+                     ┌─────────────────────────────────────────────┐
+                     │    ⚠️ ⚠️ CONSOLE WINDOW TOO SMALL ⚠️ ⚠️     │
+                     ├─────────────────────────────────────────────┤
+                     │ Please resize this window to a minimum size │
+                     │ of {min_width,3} x {min_height,2}. Current window size: {width,3} x {height,2}  │
+                     │ You may alternatively reduce the font size. │
+                     └─────────────────────────────────────────────┘
+                    """);
+                }
+                else
+                    --CurrentRenderSize;
+            else if (_render_size < RenderSize.Large && width >= _min_sizes[_render_size + 1].MinWidth && height >= _min_sizes[_render_size + 1].MinHeight)
+                ++CurrentRenderSize;
             else
-                --CurrentRenderSize;
-        else if (_render_size < RenderSize.Large && width >= _min_sizes[_render_size + 1].MinWidth && height >= _min_sizes[_render_size + 1].MinHeight)
-            ++CurrentRenderSize;
-        else
-        {
-            int timeplot_height = (int)double.Clamp(height * height * .006, 20, height * .4);
-
-            RenderFrame(width, height, timeplot_height, clear);
-            RenderMap();
-            RenderSourceSelection(Map.Width + 6, 30, timeplot_height);
-
-            if ((_invalidate | RenderInvalidation.PollResults
-                             | RenderInvalidation.Compass
-                             | RenderInvalidation.Coalitions
-                             | RenderInvalidation.HistoricPlot) != 0)
             {
-                (MergedPollHistory historic, MergedPoll? display) = FetchPolls();
+                int timeplot_height = (int)double.Clamp(height * height * .006, 20, height * .4);
 
-                RenderHistoricPlot(width, timeplot_height, historic);
-                RenderResults(width, height, timeplot_height, display);
+                RenderFrame(width, height, timeplot_height, clear);
+                RenderMap();
+                RenderSourceSelection(Map.Width + 6, 30, timeplot_height);
+
+                if ((_invalidate | RenderInvalidation.PollResults
+                                 | RenderInvalidation.Compass
+                                 | RenderInvalidation.Coalitions
+                                 | RenderInvalidation.HistoricPlot) != 0)
+                {
+                    (MergedPollHistory historic, MergedPoll? display) = FetchPolls();
+
+                    RenderHistoricPlot(width, timeplot_height, historic);
+                    RenderResults(width, height, timeplot_height, display);
+                }
+
+                Console.ResetGraphicRenditions();
+
+                _invalidate = RenderInvalidation.None;
             }
-
-            Console.ResetGraphicRenditions();
-
-            _invalidate = RenderInvalidation.None;
         }
     }
 
@@ -362,6 +365,8 @@ public sealed class Renderer
             _selected_date =
             _selected_start_date =
             _selected_end_date = null;
+
+        Render(true);
     }
 
     public async Task<PollHistory> RenderFetchingPrompt(Func<Task<PollHistory>> task)
@@ -408,7 +413,8 @@ public sealed class Renderer
         RenderModalPrompt($"{result.PollCount} Umfrageergebnisse wurden erfolgreich geladen.\nZum Starten bitte eine beliebige Taste drücken.", ConsoleColor.Green, ConsoleColor.DarkGreen);
 
         Console.ReadKey(true);
-        Render(true);
+
+        InvalidateAll();
 
         return result;
     }
