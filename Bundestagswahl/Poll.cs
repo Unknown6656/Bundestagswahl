@@ -312,13 +312,13 @@ public sealed class PollHistory
         Party[] parties = Party.All;
         StringBuilder sb = new();
 
-        sb.AppendLine($"id,date,pollster,source,state,{parties.Select(p => p.Identifier).StringJoin(",")}");
+        sb.AppendLine($"id,date,pollster,source,state,synthetic,{parties.Select(p => p.Identifier).StringJoin(",")}");
 
         for (int i = 0; i < Polls.Length; i++)
         {
             RawPoll poll = Polls[i];
 
-            sb.AppendLine($"{i},{poll.Date:yyyy-MM-dd},\"{poll.Pollster}\",\"{poll.SourceURI}\",{poll.State?.ToString() ?? "DE"},{parties.Select(p => poll[p].ToString("P1")).StringJoin(",")}");
+            sb.AppendLine($"{i},{poll.Date:yyyy-MM-dd},\"{poll.Pollster}\",\"{poll.SourceURI}\",{poll.State?.ToString() ?? "DE"},{poll.IsSynthetic},{parties.Select(p => poll[p].ToString("P2")).StringJoin(",")}");
         }
 
         return sb.ToString();
@@ -329,14 +329,14 @@ public sealed class PollHistory
         Party[] parties = Party.All;
         StringBuilder sb = new();
 
-        sb.AppendLine($"id,date,pollster,source,state,{parties.Select(p => p.Identifier).StringJoin(",")}");
+        sb.AppendLine($"id,date,pollster,source,state,synthetic,{parties.Select(p => p.Identifier).StringJoin(",")}");
 
         for (int i = 0; i < Polls.Length; i++)
         {
             RawPoll poll = Polls[i];
 
             if (poll.State == state || (state is State.BE && poll.State is State.BE_W or State.BE_O))
-                sb.AppendLine($"{i},{poll.Date:yyyy-MM-dd},\"{poll.Pollster}\",\"{poll.SourceURI}\",{poll.State},{parties.Select(p => poll[p].ToString("P1")).StringJoin(",")}");
+                sb.AppendLine($"{i},{poll.Date:yyyy-MM-dd},\"{poll.Pollster}\",\"{poll.SourceURI}\",{poll.State},{poll.IsSynthetic},{parties.Select(p => poll[p].ToString("P2")).StringJoin(",")}");
         }
 
         return sb.ToString();
@@ -490,7 +490,7 @@ public sealed class MergedPollHistory
         Party[] parties = Party.All;
         StringBuilder sb = new();
 
-        sb.AppendLine($"id,start,end,pollsters,sources,states,{parties.Select(p => p.Identifier).StringJoin(",")}");
+        sb.AppendLine($"id,start,end,pollsters,sources,states,synthetic,{parties.Select(p => p.Identifier).StringJoin(",")}");
 
         for (int i = 0; i < Polls.Length; i++)
         {
@@ -498,8 +498,9 @@ public sealed class MergedPollHistory
             string pollsters = merged.Polls.Select(p => p.Pollster).Distinct().StringJoin(";");
             string sources = merged.Polls.Select(p => p.SourceURI).Distinct().StringJoin(";");
             string states = merged.Polls.Select(p => p.State?.ToString() ?? "DE").Distinct().StringJoin(";");
+            double synthetic = (double)merged.Polls.Count(p => p.IsSynthetic) / merged.Polls.Length;
 
-            sb.AppendLine($"{i},{merged.EarliestDate:yyyy-MM-dd},{merged.LatestDate:yyyy-MM-dd},\"{pollsters}\",\"{sources}\",{states},{parties.Select(p => merged[p].ToString("P1")).StringJoin(",")}");
+            sb.AppendLine($"{i},{merged.EarliestDate:yyyy-MM-dd},{merged.LatestDate:yyyy-MM-dd},\"{pollsters}\",\"{sources}\",{states},{synthetic:P2},{parties.Select(p => merged[p].ToString("P2")).StringJoin(",")}");
         }
 
         return sb.ToString();
