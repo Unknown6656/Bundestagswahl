@@ -26,7 +26,9 @@ await using ConsoleResizeListener resize = new();
 
 resize.SizeChanged += (_, _, _, _) => renderer.Render(true);
 resize.Start();
-renderer.Run();
+
+await renderer.Run();
+
 resize.Stop();
 
 Console.SetCursorPosition(Console.WindowWidth - 1, Console.WindowHeight - 1);

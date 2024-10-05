@@ -66,8 +66,8 @@ public enum SourceCursorPosition
 {
     Button_Last40Years,
     Button_Last20Years,
-    Button_Last15Years,
-    Button_Last10Years,
+    Button_Last16Years,
+    Button_Last12Years,
     Button_Last8Years,
     Button_Last4Years,
     Button_Last1Year,
@@ -290,7 +290,7 @@ public sealed class Renderer
                 ++CurrentRenderSize;
             else
             {
-                int timeplot_height = (int)double.Clamp(height * height * .006, 20, height * .4);
+                int timeplot_height = (int)double.Clamp(height * height * .006, 20, height * .6);
 
                 RenderFrame(width, height, timeplot_height, clear);
                 RenderMap();
@@ -789,6 +789,9 @@ public sealed class Renderer
                     else
                     {
                         int braille_right = (int)(ydiff * 4);
+
+                        // TODO : fix subpixel rendering!!!!
+
 #if ENABLE_HISTORIC_PLOT_SUBPIXEL_RENDERING
                         int braille_left = Math.Min(Math.Max(braille_right - percentage.CompareTo(prev[party]), 0), 4);
 #else
@@ -797,18 +800,18 @@ public sealed class Renderer
                         char braille = (char)(0x2800
                                             | (braille_right switch
                                             {
-                                                0 => 0b_1000_0000,
-                                                1 => 0b_0010_0000,
-                                                2 => 0b_0001_0000,
-                                                3 => 0b_0000_1000,
+                                                0 => 0b_0000_1000,
+                                                1 => 0b_0001_0000,
+                                                2 => 0b_0010_0000,
+                                                3 => 0b_1000_0000,
                                                 _ => 0b_0000_0000,
                                             })
                                             | (braille_left switch
                                             {
-                                                0 => 0b_0100_0000,
-                                                1 => 0b_0000_0100,
-                                                2 => 0b_0000_0010,
-                                                3 => 0b_0000_0001,
+                                                0 => 0b_0000_0001,
+                                                1 => 0b_0000_0010,
+                                                2 => 0b_0000_0100,
+                                                3 => 0b_0100_0000,
                                                 _ => 0b_0000_0000,
                                             }));
 
@@ -841,8 +844,8 @@ public sealed class Renderer
             {
                 (SourceCursorPosition.Button_Last40Years, "40y"),
                 (SourceCursorPosition.Button_Last20Years, "20y"),
-                (SourceCursorPosition.Button_Last15Years, "15y"),
-                (SourceCursorPosition.Button_Last10Years, "10y"),
+                (SourceCursorPosition.Button_Last16Years, "16y"),
+                (SourceCursorPosition.Button_Last12Years, "12y"),
                 (SourceCursorPosition.Button_Last8Years, "8 y"),
                 (SourceCursorPosition.Button_Last4Years, "4 y"),
                 (SourceCursorPosition.Button_Last1Year, "1 y"),
@@ -1200,8 +1203,8 @@ public sealed class Renderer
                             {
                                 SourceCursorPosition.Button_Last40Years => (40, 0),
                                 SourceCursorPosition.Button_Last20Years => (20, 0),
-                                SourceCursorPosition.Button_Last15Years => (15, 0),
-                                SourceCursorPosition.Button_Last10Years => (10, 0),
+                                SourceCursorPosition.Button_Last16Years => (16, 0),
+                                SourceCursorPosition.Button_Last12Years => (12, 0),
                                 SourceCursorPosition.Button_Last8Years => (8, 0),
                                 SourceCursorPosition.Button_Last4Years => (4, 0),
                                 SourceCursorPosition.Button_Last1Year => (1, 0),
