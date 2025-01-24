@@ -780,7 +780,7 @@ public sealed class Renderer
             }
 
             if (poll is { })
-                foreach ((Party party, double percentage) in poll.Percentages.Reverse())
+                foreach ((Party party, double percentage) in (poll.Percentages as IEnumerable<(Party, double)>).Reverse())
                 {
                     int y = (int)(graph_height * (1 - percentage / max_perc));
                     double ydiff = graph_height * (1 - percentage / max_perc) - y;
@@ -898,7 +898,7 @@ public sealed class Renderer
 
             if (poll is { })
             {
-                Console.Write($"Umfrageergebnis am {poll.Date:yyyy-MM-dd} für: ");
+                Console.Write($"Umfrageergebnis am {ConsoleColor.Yellow.ToVT520(ColorMode.Foreground)}{poll.Date:yyyy-MM-dd}{ConsoleColor.Default.ToVT520(ColorMode.Foreground)} für: ");
                 Console.Write(string.Join(", ", from kvp in _selected_states
                                                 where kvp.Value
                                                 let color = MapColoring.Default.States[kvp.Key].Color
@@ -906,13 +906,33 @@ public sealed class Renderer
 
                 if (Console.WindowWidth - 2 - Console.CursorLeft is int cw and > 0)
                     Console.Write(new string(' ', cw));
+
+                Console.SetCursorPosition(left + 20, top + 1);
+                Console.Write($"Umfragequelle: ");
+
+                if (poll.PollingSource is string source)
+                {
+                    if (source.Length + Console.CursorLeft > Console.WindowWidth - 8)
+                        source = source[..(Console.WindowWidth - 8 - Console.CursorLeft)] + "...";
+
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.Write(source);
+                }
+                else
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.Write("(unknown)");
+                }
+
+                Console.ForegroundColor = ConsoleColor.Default;
+                Console.Write(new string(' ', Console.WindowWidth - 2 - Console.CursorLeft));
             }
 
             foreach ((Party party, int index) in Party.All.WithIndex())
-                RenderPartyResult(left, top + 2 + index, width, poll, party);
+                RenderPartyResult(left, top + 3 + index, width, poll, party);
         }
 
-        top += 4 + Party.All.Length;
+        top += 5 + Party.All.Length;
 
         if (_invalidate.HasFlag(RenderInvalidation.Compass))
         {
@@ -924,18 +944,74 @@ public sealed class Renderer
         int vertical_space = height + timeplot_height - top;
         (int coalition_x, _) = RenderCompass(left, top + 2, vertical_space - 4, poll);
 
+        coalition_x += 6;
+
         if (_invalidate.HasFlag(RenderInvalidation.Coalitions))
         {
-            coalition_x += 6;
+            Console.SetCursorPosition(left + coalition_x, top);
+            Console.ForegroundColor = ConsoleColor.Default;
+            Console.Write("Sitzverteilung:");
 
+            int seat_width = width - coalition_x - 35;
+
+            seat_width = (seat_width / 2 - 1) * 2 + 3;
+
+            if (poll is { })
+            {
+                (Party party, double perc)[] seats = [.. from p in Party.LeftToRight
+                                                         let perc = poll[p]
+                                                         where perc > .05
+                                                         select (p, perc)];
+                double total = seats.Sum(p => p.perc);
+
+                for (int i = 0; i < seats.Length; ++i)
+                    seats[i].perc *= seat_width / total;
+
+                Console.SetCursorPosition(left + coalition_x, top + 2);
+
+                foreach ((Party party, double perc) in seats)
+                {
+                    Console.ForegroundColor = party.Color;
+                    Console.Write(new string('⣿', (int)double.Round(perc)));
+                }
+
+                int offs = Console.CursorLeft - left - coalition_x - seat_width;
+
+                if (offs < 0)
+                    Console.Write('⣿');
+                else if (offs > 0)
+                {
+                    --Console.CursorLeft;
+                    Console.Write(' ');
+                }
+
+                Console.Write("  ");
+            }
+            else
+            {
+                Console.SetCursorPosition(left + coalition_x, top + 2);
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.Write($"¦{new string('·', seat_width - 2)}¦");
+            }
+
+            Console.SetCursorPosition(left + coalition_x, top + 3);
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write($"└{new string('─', seat_width / 2 - 1)}┴{new string('─', seat_width / 2 - 1)}┘");
+        }
+
+        top += 5;
+        vertical_space -= 5;
+
+        if (_invalidate.HasFlag(RenderInvalidation.Coalitions))
+        {
             Console.SetCursorPosition(left + coalition_x, top);
             Console.ForegroundColor = ConsoleColor.Default;
             Console.Write("Koalitionsmöglichkeiten:");
 
             Coalition[] coalitions = poll is { } ? Coalitions.Select(parties => new Coalition(poll, parties))
-                                                             .Where(c => c.CoalitionParties.Length >= 1) // filter coalitions where all other parties are < 5%
-                                                             .Distinct()
+                                                             .Where(c => c.CoalitionPercentage > .20 && c.CoalitionParties.Length >= 1) // filter coalitions where all other parties are < 5%
                                                              .OrderByDescending(c => c.CoalitionPercentage)
+                                                             .Distinct()
                                                              .Take(vertical_space)
                                                              .ToArray() : [];
 
@@ -1248,10 +1324,10 @@ public sealed class Renderer
 
                             AdjustTimeRanges();
 
-                            // TODO : invalidate only if dates have changed
-                            return GetRenderInvalidation(Views.Historic)
-                                 | GetRenderInvalidation(Views.Result)
-                                 | GetRenderInvalidation(Views.Source);
+                            if (cursor != _selected_range.Value.Cursor)
+                                return GetRenderInvalidation(Views.Historic)
+                                     | GetRenderInvalidation(Views.Result)
+                                     | GetRenderInvalidation(Views.Source);
                         }
 
                         return RenderInvalidation.None;
