@@ -51,7 +51,7 @@
     </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="HtmlAgilityPack" Version="1.11.68" />
-        <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
+        <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.1" />
         <PackageReference Include="Unknown6656.Generics" Version="1.0.16" />
         <PackageReference Include="Unknown6656.Console" Version="1.0.160.8821" />
         <PackageReference Include="Unknown6656.Runtime" Version="1.1.2" />
