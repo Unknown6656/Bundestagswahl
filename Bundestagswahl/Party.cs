@@ -47,11 +47,11 @@ public sealed class Party(PartyIdentifier identifier, string name, ConsoleColor 
     public static Party FDP { get; }       = new("fdp", "FDP",             new(255, 200,   0),  .6,  .5);
     public static Party AFD { get; }       = new("afd", "AfD",             new(  0, 158, 224),  .5, -.8);
     public static Party GRÜNE { get; }     = new("grü", "B.90/Die Grünen", new( 60, 155,   0), -.5,  .1);
-    public static Party LINKE { get; }     = new("lin", "Die Linke",       new(208,   0,  67), -.6, -.8);
+    public static Party LINKE { get; }     = new("lin", "Die Linke",       new(255,  10, 150), -.7, -.65);
     public static Party PIRATEN { get; }   = new("pir", "Die Piraten",     new(255, 135,   0), -.1,  .8);
     public static Party FW { get; }        = new("fw",  "Freie Wähler",    new(  0,  70, 255),  .4,  .0);
     public static Party RECHTE { get; }    = new("rep", "NPD/REP/Rechte",  new(170, 122,  44),  .9, -.8);
-    public static Party BSW { get; }       = new("bsw", "BSW",             new(111,   0,  60), -.6, -.8);
+    public static Party BSW { get; }       = new("bsw", "BSW",             new(111,   0,  60), -.5, -.8);
     public static Party __OTHER__ { get; } = new("son", "Sonstige",        new(126, 176, 165),  .0,  .0);
 
     public static Party[] All { get; } = [CDU, SPD, FDP, AFD, GRÜNE, LINKE, BSW, PIRATEN, FW, RECHTE, __OTHER__];
