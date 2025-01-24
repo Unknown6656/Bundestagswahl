@@ -14,6 +14,8 @@ public interface IPoll
 {
     public DateOnly Date { get; }
 
+    public string? PollingSource { get; }
+
     public Party StrongestParty { get; }
 
     public double this[Party party] { get; }
@@ -37,6 +39,8 @@ public sealed class Coalition
 
     public IPoll UnderlyingPoll { get; }
 
+    public string? PollingSource => UnderlyingPoll.PollingSource;
+
     public DateOnly Date => UnderlyingPoll.Date;
 
 
@@ -46,9 +50,7 @@ public sealed class Coalition
     public Coalition(IPoll poll, params Party[] parties)
     {
         UnderlyingPoll = poll;
-        CoalitionParties = parties.Where(p => poll[p] >= .05)
-                                  .OrderByDescending(p => poll[p])
-                                  .ToArray();
+        CoalitionParties = [.. parties.Where(p => poll[p] >= .05).OrderByDescending(p => poll[p])];
         OppositionParties = Party.All.Except(parties).ToArrayWhere(p => poll[p] >= .05);
         StrongestParty = CoalitionParties.MaxBy(p => poll[p]);
         CoalitionPercentage = 0;
@@ -84,6 +86,8 @@ public sealed class Coalition
 
         return hc;
     }
+
+    public override string ToString() => $"{Date:yyyy-MM-dd}, {CoalitionParties.Select(p => p.Identifier).StringJoin(" + ")}: {CoalitionPercentage:P1}";
 }
 
 [Flags]
@@ -114,6 +118,8 @@ public sealed class RawPoll
     public State? State { get; }
 
     public bool IsFederal => State is null;
+
+    string? IPoll.PollingSource => Pollster ?? SourceURI;
 
     public Party StrongestParty => Results.OrderByDescending(static kvp => kvp.Value).FirstOrDefault().Key ?? Party.__OTHER__;
 
@@ -293,6 +299,43 @@ public sealed class PollHistory
                    select new MergedPoll([.. g]));
     }
 
+
+    //public MergedPoll Interpolate(DateOnly date, IEnumerable<State?> states)
+    //{
+    //    DateOnly? prev = GetPreviousDate(date);
+    //    DateOnly? next = GetNextDate(date);
+
+    //    if (prev is null && next is null)
+    //        return MergedPoll.Empty;
+    //    else if (prev is null)
+    //        return this[next!.Value, states];
+    //    else if (next is null || prev == next)
+    //        return this[prev.Value, states];
+    //    else
+    //    {
+    //        DateOnly p = prev.Value;
+    //        DateOnly n = next.Value;
+    //        MergedPoll prev_poll = GetSlice(p, states);
+    //        MergedPoll next_poll = GetSlice(n, states);
+
+    //        double delta = (date - p).TotalDays / (n - p).TotalDays;
+
+    //        Dictionary<Party, double> results = [];
+
+    //        foreach (Party party in Party.All)
+    //        {
+    //            double prev_val = prev_poll[party];
+    //            double next_val = next_poll[party];
+
+    //            results[party] = prev_val + (next_val - prev_val) * delta;
+    //        }
+
+    //        return new(date, null, null, null, true, results);
+    //    }
+    //}
+
+
+
     //public Poll? MostRecent() => Polls.FirstOrDefault();
 
     //public Poll[] MostRecent(int count) => Polls.Take(count).ToArray();
@@ -386,6 +429,18 @@ public sealed class MergedPoll
 
     DateOnly IPoll.Date => LatestDate;
 
+    string? IPoll.PollingSource
+    {
+        get
+        {
+            IEnumerable<string> sources = Polls.Select(static (IPoll p) => p.PollingSource)
+                                               .Where(s => !string.IsNullOrEmpty(s))
+                                               .Distinct(StringComparer.OrdinalIgnoreCase)!;
+
+            return sources.Any() ? sources.StringJoin(";") : null;
+        }
+    }
+
     internal IReadOnlyDictionary<Party, double> Results { get; }
 
     public double this[Party p] => Results.ContainsKey(p) ? Results[p] : 0;
@@ -455,9 +510,6 @@ public sealed class MergedPoll
 
     public static implicit operator MergedPoll(RawPoll[] polls) => new(polls);
 }
-
-
-
 
 
 // TODO : check if we still need this class
