@@ -119,7 +119,8 @@ public sealed class RawPoll
 
     public bool IsFederal => State is null;
 
-    string? IPoll.PollingSource => Pollster ?? SourceURI;
+    string? IPoll.PollingSource => (Pollster ?? SourceURI)?.Replace(".html", ".htm", StringComparison.OrdinalIgnoreCase)
+                                                          ?.TrimEnd(".htm");
 
     public Party StrongestParty => Results.OrderByDescending(static kvp => kvp.Value).FirstOrDefault().Key ?? Party.__OTHER__;
 

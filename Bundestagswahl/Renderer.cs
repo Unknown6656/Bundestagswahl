@@ -6,10 +6,10 @@ using System.Text;
 using System.Linq;
 using System;
 
+using Unknown6656.Generics.Text;
 using Unknown6656.Generics;
 using Unknown6656.Runtime;
 using Unknown6656.Console;
-using Unknown6656.Common;
 
 namespace Bundestagswahl;
 
