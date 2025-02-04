@@ -5,6 +5,7 @@ using System.Text;
 using System.IO;
 using System;
 
+using Unknown6656.Generics.Text;
 using Unknown6656.Generics;
 
 namespace Bundestagswahl;

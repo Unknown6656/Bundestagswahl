@@ -466,12 +466,12 @@ public sealed class Renderer
 
     public async Task<PollHistory> RenderFetchingPrompt(Func<Task<PollHistory>> task)
     {
-        PollHistory result = await RenderModalPromptUntil<PollHistory>(
+        PollHistory result = await RenderModalPromptUntil(
             "Umfrageergebnisse werden geladen...\nBitte warten.",
             ConsoleColor.Blue,
             ConsoleColor.DarkBlue,
             ModalPromptIcon.Spinner,
-            new(async () => task())
+            task()
         );
         await RenderModalPromptUntil<ConsoleKeyInfo>(
             $"{result.PollCount} Umfrageergebnisse wurden erfolgreich geladen.\nZum Starten bitte eine beliebige Taste drücken.",
