@@ -27,7 +27,7 @@ public enum Views
     States,
     Source,
     Historic,
-    Result,
+    Options,
 }
 
 public enum StateCursorPosition
@@ -92,7 +92,7 @@ public enum RenderInvalidation
     PollResults     = 0b_00000000_00000000_00000000_01000000,
     Compass         = 0b_00000000_00000000_00000000_10000000,
     Coalitions      = 0b_00000000_00000000_00000001_00000000,
-    //0b_00000000_00000000_00000010_00000000,
+    Options         = 0b_00000000_00000000_00000010_00000000,
 
     All             = ~None,
 }
@@ -206,6 +206,7 @@ public sealed class Renderer
     };
     private static readonly ConsoleColor _dark = new(.27);
     private static readonly object _render_mutex = new();
+    private static readonly bool _sixel_supported = LINQ.TryDo(() => Console.CurrentTerminalEmulatorInfo.HasSixelSupport, false);
 
     public const ConsoleKey KEY_VIEW_SWITCH = ConsoleKey.Tab;
     public const ConsoleKey KEY_ENTER = ConsoleKey.Enter;
@@ -263,6 +264,7 @@ public sealed class Renderer
     private Views _current_view = Views.States;
     private RenderInvalidation _invalidate;
     private RenderSize _render_size;
+    private bool _sixel_enabled;
 
 
     public bool IsActive { get; private set; } = true;
@@ -400,12 +402,16 @@ public sealed class Renderer
                     RenderResults(width, height, timeplot_height, display);
                 }
 
+                RenderOptions(Map.Height + 17, Map.Width + 2);
+
                 Console.ResetGraphicRenditions();
 
                 _invalidate = RenderInvalidation.None;
             }
 
             _modal_prompt?.Render();
+
+            Console.DiscardAllPendingInput();
         }
     }
 
@@ -677,7 +683,7 @@ public sealed class Renderer
             RenderFrameLine(0, Map.Height + 3, Map.Width + 4, true);
             RenderFrameLine(Map.Width + 3, timeplot_height, width - Map.Width - 3, true);
             RenderFrameLine(Map.Width + 32, 0, timeplot_height + 1, false);
-            //RenderFrameLine(Map.Width + 3, 0, Map.Width + 4, false);
+            RenderFrameLine(0, Map.Height + 15, Map.Width + 4, true);
         }
 
         if (_invalidate.HasFlag(RenderInvalidation.FrameText))
@@ -686,7 +692,8 @@ public sealed class Renderer
             RenderTitle(3, Map.Height + 3, "BUNDESLÄNDER", _current_view is Views.States);
             RenderTitle(Map.Width + 6, 0, "ZEITRAHMEN & QUELLE", _current_view is Views.Source);
             RenderTitle(Map.Width + 35, 0, "HISTORISCHER VERLAUF", _current_view is Views.Historic);
-            RenderTitle(Map.Width + 6, timeplot_height, "UMFRAGEERGEBNISSE", _current_view is Views.Result);
+            RenderTitle(Map.Width + 6, timeplot_height, "UMFRAGEERGEBNISSE", false);
+            RenderTitle(3, Map.Height + 15, "OPTIONEN", _current_view is Views.Options);
         }
     }
 
@@ -963,7 +970,10 @@ public sealed class Renderer
             // TODO : ?
         }
 
-        RenderButton(left, 14, 24, "DATEN AKTUALISIEREN", ConsoleColor.Default, false, false);
+
+        // TODO : source
+
+
     }
 
     private void RenderResults(int width, int height, int timeplot_height, IPoll? poll)
@@ -1264,15 +1274,47 @@ public sealed class Renderer
             }
     }
 
+    private void RenderOptions(int top, int width)
+    {
+        if (!_invalidate.HasFlag(RenderInvalidation.Options))
+            return;
+
+        int left = 3;
+
+        Console.SetCursorPosition(3, top);
+        Console.ResetGraphicRenditions();
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("Sixel Rendering Unterstützung: ");
+
+        if (_sixel_supported)
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.Write("JA");
+        }
+        else
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.Write("NEIN");
+        }
+
+        Console.SetCursorPosition(3, top + 2);
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("              Sixel Rendering: ");
+
+        RenderButton(left + 31, top + 2, 9, _sixel_enabled ? "AN" : "AUS", ConsoleColor.Default, _sixel_enabled, false);
+        RenderButton(left, top + 4, 40, "DATENGRUNDLAGE/UMFRAGEN AKTUALISIEREN", ConsoleColor.Default, false, false);
+
+    }
+
     private static RenderInvalidation GetRenderInvalidation(Views view) => view switch
     {
         Views.States => RenderInvalidation.StateSelector
                       | RenderInvalidation.Map,
         Views.Source => RenderInvalidation.DataSource,
-        Views.Historic => RenderInvalidation.HistoricPlot,
-        Views.Result => RenderInvalidation.PollResults
-                      | RenderInvalidation.Compass
-                      | RenderInvalidation.Coalitions,
+        Views.Historic => RenderInvalidation.HistoricPlot
+                        | RenderInvalidation.PollResults
+                        | RenderInvalidation.Compass
+                        | RenderInvalidation.Coalitions,
         _ => RenderInvalidation.None,
     };
 
@@ -1339,8 +1381,6 @@ public sealed class Renderer
                     }
 
                     return GetRenderInvalidation(Views.Historic)
-                         | GetRenderInvalidation(Views.Result)
-                         | GetRenderInvalidation(Views.Historic)
                          | GetRenderInvalidation(Views.States);
 
                 #endregion
@@ -1388,7 +1428,7 @@ public sealed class Renderer
                         // TODO : invalidate only if dates have changed
                         return changed ? GetRenderInvalidation(Views.Historic)
                                        | GetRenderInvalidation(Views.Source)
-                                       | GetRenderInvalidation(Views.Result) : RenderInvalidation.None;
+                                       : RenderInvalidation.None;
                     }
 
                 #endregion
@@ -1409,7 +1449,6 @@ public sealed class Renderer
 
                             if (cursor != _selected_range.Value.Cursor)
                                 return GetRenderInvalidation(Views.Historic)
-                                     | GetRenderInvalidation(Views.Result)
                                      | GetRenderInvalidation(Views.Source);
                         }
 
@@ -1426,7 +1465,6 @@ public sealed class Renderer
                         }
 
                         return changed ? GetRenderInvalidation(Views.Historic)
-                                       | GetRenderInvalidation(Views.Result)
                                        : RenderInvalidation.None;
                     }
 
@@ -1439,8 +1477,6 @@ public sealed class Renderer
 
         Invalidate(process());
         Render(false);
-
-        Console.DiscardAllPendingInput();
     }
 }
 
