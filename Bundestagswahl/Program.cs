@@ -13,6 +13,7 @@ Console.CancelKeyPress += (_, evt) =>
 {
     Console.ResetGraphicRenditions();
     Console.SetCursorPosition(0, Console.WindowHeight - 1);
+    Console.CursorVisible = true;
 
     evt.Cancel = false;
 };

@@ -2,6 +2,7 @@
 
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using System.Threading;
 using System.Text;
 using System.Linq;
 using System;
@@ -10,8 +11,6 @@ using Unknown6656.Generics.Text;
 using Unknown6656.Generics;
 using Unknown6656.Runtime;
 using Unknown6656.Console;
-using System.Reflection.Metadata;
-using System.Threading;
 
 namespace Bundestagswahl;
 
@@ -473,13 +472,17 @@ public sealed class Renderer
             ModalPromptIcon.Spinner,
             task()
         );
-        await RenderModalPromptUntil<ConsoleKeyInfo>(
+
+        await RenderModalPromptUntil<__empty>(
             $"{result.PollCount} Umfrageergebnisse wurden erfolgreich geladen.\nZum Starten bitte eine beliebige Taste drücken.",
             ConsoleColor.Green,
             ConsoleColor.DarkGreen,
             ModalPromptIcon.Info,
-            new(() => Console.ReadKey(true))
+            null
         );
+
+        CloseModalPrompt();
+        Console.HardResetAndFullClear();
 
         return result;
     }
@@ -491,52 +494,49 @@ public sealed class Renderer
         return (_modal_prompt = new(content, foreground, background, icon)).Render();
     }
 
-    private async Task<T> RenderModalPromptUntil<T>(string content, ConsoleColor foreground, ConsoleColor background, ModalPromptIcon icon, Task<T> task)
+    private async Task<T> RenderModalPromptUntil<T>(string content, ConsoleColor foreground, ConsoleColor background, ModalPromptIcon icon, Task<T>? task)
     {
         (int x, int y) = RenderModalPrompt(content, foreground, background, icon);
         bool completed = false;
-        Task spinner;
+        Task spinner = _modal_prompt?.Icon is ModalPromptIcon.Spinner ? Task.Factory.StartNew(async delegate
+        {
+            // ⡎⠉⢱
+            // ⢇⣀⡸
+            const string TL = "⡀⡄⡆⡎⠎⠊⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀";
+            const string TM = "⠀⠀⠀⠀⠁⠉⠉⠉⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀";
+            const string TR = "⠀⠀⠀⠀⠀⠀⠁⠑⠱⢱⢰⢠⢀⠀⠀⠀⠀⠀⠀⠀";
+            const string BR = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠘⠸⡸⡰⡠⡀⠀⠀⠀";
+            const string BM = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⣀⣀⡀⠀";
+            const string BL = "⠇⠃⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⢄⢆⢇";
+            int step = 0;
 
-        if (_modal_prompt?.Icon is ModalPromptIcon.Spinner)
-            spinner = Task.Factory.StartNew(async delegate
+            while (!completed)
             {
-                // ⡎⠉⢱
-                // ⢇⣀⡸
-                const string TL = "⡀⡄⡆⡎⠎⠊⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀";
-                const string TM = "⠀⠀⠀⠀⠁⠉⠉⠉⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀";
-                const string TR = "⠀⠀⠀⠀⠀⠀⠁⠑⠱⢱⢰⢠⢀⠀⠀⠀⠀⠀⠀⠀";
-                const string BR = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠘⠸⡸⡰⡠⡀⠀⠀⠀";
-                const string BM = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⣀⣀⡀⠀";
-                const string BL = "⠇⠃⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⢄⢆⢇";
-                int step = 0;
+                step = (step + 1) % TL.Length;
+                (int spinner_x, int spinner_y) = _modal_prompt.SpinnerPosition;
 
-                while (!completed)
-                {
-                    step = (step + 1) % TL.Length;
-                    (int spinner_x, int spinner_y) = _modal_prompt.SpinnerPosition;
+                Console.ForegroundColor = foreground;
+                Console.SetCursorPosition(spinner_x, spinner_y);
+                Console.Write(TL[step]);
+                Console.Write(TM[step]);
+                Console.Write(TR[step]);
+                Console.SetCursorPosition(spinner_x, spinner_y + 1);
+                Console.Write(BL[step]);
+                Console.Write(BM[step]);
+                Console.Write(BR[step]);
 
-                    Console.ForegroundColor = foreground;
-                    Console.SetCursorPosition(spinner_x, spinner_y);
-                    Console.Write(TL[step]);
-                    Console.Write(TM[step]);
-                    Console.Write(TR[step]);
-                    Console.SetCursorPosition(spinner_x, spinner_y + 1);
-                    Console.Write(BL[step]);
-                    Console.Write(BM[step]);
-                    Console.Write(BR[step]);
+                await Task.Delay(50);
+            }
+        }) : Task.CompletedTask;
+        T result = default!;
 
-                    await Task.Delay(50);
-                }
-            });
-        else
-            spinner = Task.CompletedTask;
-
-        T result = await task;
-        completed = true;
+        if (task is { })
+        {
+            result = await task;
+            completed = true;
+        }
 
         await spinner;
-
-        CloseModalPrompt();
 
         return result;
     }
