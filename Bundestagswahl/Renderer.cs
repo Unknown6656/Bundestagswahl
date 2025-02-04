@@ -10,6 +10,8 @@ using Unknown6656.Generics.Text;
 using Unknown6656.Generics;
 using Unknown6656.Runtime;
 using Unknown6656.Console;
+using System.Reflection.Metadata;
+using System.Threading;
 
 namespace Bundestagswahl;
 
@@ -96,6 +98,90 @@ public enum RenderInvalidation
     All             = ~None,
 }
 
+public enum ModalPromptIcon
+{
+    None = 0,
+    Info = 1,
+    Exclamation = 2,
+    Question = 3,
+    Spinner = 4,
+}
+
+public class ModalPromptInfo
+{
+    public string[] ContentLines { get; }
+    public ConsoleColor Foreground { get; }
+    public ConsoleColor Background { get; }
+    public int PromptWidth { get; }
+    public int PromptHeight { get; }
+    public ModalPromptIcon Icon { get; }
+    public (int X, int Y) SpinnerPosition { get; private set; }
+
+
+    public ModalPromptInfo(string content, ConsoleColor foreground, ConsoleColor background, ModalPromptIcon icon = ModalPromptIcon.None)
+    {
+        Foreground = foreground;
+        Background = background;
+        ContentLines = content.SplitIntoLines();
+        SpinnerPosition = (-1, -1);
+        Icon = icon;
+
+        string[] icon_lines = icon switch
+        {
+            ModalPromptIcon.Info => ["╱i╲", "‾‾‾"],
+            ModalPromptIcon.Exclamation => ["╱!╲", "‾‾‾"],
+            ModalPromptIcon.Question => ["╱?╲", "‾‾‾"],
+            _ => [],
+        };
+        int prompt_width = ContentLines.Max(s => s.Length + 12);
+
+        if (ContentLines.Length == 1)
+            ContentLines = [ContentLines[0], ""];
+
+        // TODO : use RenderBox(...) ?
+        // TODO : re-implement spinner
+
+        ContentLines = [
+            $"┌{new string('─', prompt_width)}┐",
+            $"│{new string(' ', prompt_width)}│",
+            ..ContentLines.Select((line, i) => $"│   {(i < icon_lines.Length ? icon_lines[i] : "   ")}   {line.PadRight(prompt_width - 12)}   │"),
+            $"│{new string(' ', prompt_width)}│",
+            $"└{new string('─', prompt_width)}┘",
+        ];
+        PromptWidth = prompt_width + 2;
+        PromptHeight = ContentLines.Length;
+    }
+
+    public (int x, int y) Render() => Render(Console.WindowWidth, Console.WindowHeight);
+
+    public (int x, int y) Render(int console_width, int console_height)
+    {
+        Console.Write(Background.ToVT520(ColorMode.Foreground));
+
+        for (int _y = 1; _y < console_height - 1; ++_y)
+            for (int _x = _y % 2 + 1; _x < console_width - 1; _x += 2)
+            {
+                Console.SetCursorPosition(_x, _y);
+                Console.Write('╱');
+            }
+
+        int x = (console_width - PromptWidth) / 2;
+        int y = (console_height - PromptHeight) / 2;
+
+        SpinnerPosition = (x + 4, y + 2);
+
+        Console.Write(Foreground.ToVT520(ColorMode.Foreground));
+
+        for (int i = 0; i < PromptHeight; ++i)
+        {
+            Console.SetCursorPosition(x, y + i);
+            Console.Write(ContentLines[i]);
+        }
+
+        return (x, y);
+    }
+}
+
 public sealed class Renderer
     : IDisposable
 {
@@ -174,6 +260,7 @@ public sealed class Renderer
     private StateCursorPosition _state_cursor = StateCursorPosition.Federal;
     private SourceCursorPosition _source_cursor = SourceCursorPosition.Button_Last40Years;
     private SourceCursorPosition? _current_source = SourceCursorPosition.Button_Last40Years;
+    private ModalPromptInfo? _modal_prompt = null;
     private Views _current_view = Views.States;
     private RenderInvalidation _invalidate;
     private RenderSize _render_size;
@@ -316,6 +403,8 @@ public sealed class Renderer
 
                 _invalidate = RenderInvalidation.None;
             }
+
+            _modal_prompt?.Render();
         }
     }
 
@@ -377,96 +466,85 @@ public sealed class Renderer
 
     public async Task<PollHistory> RenderFetchingPrompt(Func<Task<PollHistory>> task)
     {
-        (int x, int y) = RenderModalPrompt("Umfrageergebnisse werden geladen...\nBitte warten.", ConsoleColor.Blue, ConsoleColor.DarkBlue);
-
-        Console.ForegroundColor = ConsoleColor.Cyan;
-
-        bool completed = false;
-        using Task spinner = Task.Factory.StartNew(async delegate
-        {
-            // ⡎⠉⢱
-            // ⢇⣀⡸
-            const string TL = "⡀⡄⡆⡎⠎⠊⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀";
-            const string TM = "⠀⠀⠀⠀⠁⠉⠉⠉⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀";
-            const string TR = "⠀⠀⠀⠀⠀⠀⠁⠑⠱⢱⢰⢠⢀⠀⠀⠀⠀⠀⠀⠀";
-            const string BR = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠘⠸⡸⡰⡠⡀⠀⠀⠀";
-            const string BM = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⣀⣀⡀⠀";
-            const string BL = "⠇⠃⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⢄⢆⢇";
-            int step = 0;
-
-            while (!completed)
-            {
-                step = (step + 1) % TL.Length;
-
-                Console.SetCursorPosition(x + 4, y + 2);
-                Console.Write(TL[step]);
-                Console.Write(TM[step]);
-                Console.Write(TR[step]);
-                Console.SetCursorPosition(x + 4, y + 3);
-                Console.Write(BL[step]);
-                Console.Write(BM[step]);
-                Console.Write(BR[step]);
-
-                await Task.Delay(50);
-            }
-        });
-
-        PollHistory result = await task();
-        completed = true;
-
-        await spinner;
-
-        RenderModalPrompt($"{result.PollCount} Umfrageergebnisse wurden erfolgreich geladen.\nZum Starten bitte eine beliebige Taste drücken.", ConsoleColor.Green, ConsoleColor.DarkGreen);
-
-        Console.ReadKey(true);
-
-        InvalidateAll();
+        PollHistory result = await RenderModalPromptUntil<PollHistory>(
+            "Umfrageergebnisse werden geladen...\nBitte warten.",
+            ConsoleColor.Blue,
+            ConsoleColor.DarkBlue,
+            ModalPromptIcon.Spinner,
+            new(async () => task())
+        );
+        await RenderModalPromptUntil<ConsoleKeyInfo>(
+            $"{result.PollCount} Umfrageergebnisse wurden erfolgreich geladen.\nZum Starten bitte eine beliebige Taste drücken.",
+            ConsoleColor.Green,
+            ConsoleColor.DarkGreen,
+            ModalPromptIcon.Info,
+            new(() => Console.ReadKey(true))
+        );
 
         return result;
     }
 
-    private static (int x, int y) RenderModalPrompt(string content, ConsoleColor foreground, ConsoleColor background)
+    private (int x, int y) RenderModalPrompt(string content, ConsoleColor foreground, ConsoleColor background, ModalPromptIcon icon)
     {
-        int width = Console.WindowWidth;
-        int height = Console.WindowHeight;
+        Render(true);
 
-        Console.Write(background.ToVT520(ColorMode.Foreground));
+        return (_modal_prompt = new(content, foreground, background, icon)).Render();
+    }
 
-        for (int _y = 1; _y < height - 1; ++_y)
-            for (int _x = _y % 2 + 1; _x < width - 1; _x += 2)
+    private async Task<T> RenderModalPromptUntil<T>(string content, ConsoleColor foreground, ConsoleColor background, ModalPromptIcon icon, Task<T> task)
+    {
+        (int x, int y) = RenderModalPrompt(content, foreground, background, icon);
+        bool completed = false;
+        Task spinner;
+
+        if (_modal_prompt?.Icon is ModalPromptIcon.Spinner)
+            spinner = Task.Factory.StartNew(async delegate
             {
-                Console.SetCursorPosition(_x, _y);
-                Console.Write('╱');
-            }
+                // ⡎⠉⢱
+                // ⢇⣀⡸
+                const string TL = "⡀⡄⡆⡎⠎⠊⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀";
+                const string TM = "⠀⠀⠀⠀⠁⠉⠉⠉⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀";
+                const string TR = "⠀⠀⠀⠀⠀⠀⠁⠑⠱⢱⢰⢠⢀⠀⠀⠀⠀⠀⠀⠀";
+                const string BR = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠘⠸⡸⡰⡠⡀⠀⠀⠀";
+                const string BM = "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⣀⣀⡀⠀";
+                const string BL = "⠇⠃⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⢄⢆⢇";
+                int step = 0;
 
-        string[] prompt = content.SplitIntoLines();
-        int prompt_width = prompt.Max(s => s.Length + 12);
+                while (!completed)
+                {
+                    step = (step + 1) % TL.Length;
+                    (int spinner_x, int spinner_y) = _modal_prompt.SpinnerPosition;
 
-        if (prompt.Length == 1)
-            prompt = [prompt[0], ""];
+                    Console.ForegroundColor = foreground;
+                    Console.SetCursorPosition(spinner_x, spinner_y);
+                    Console.Write(TL[step]);
+                    Console.Write(TM[step]);
+                    Console.Write(TR[step]);
+                    Console.SetCursorPosition(spinner_x, spinner_y + 1);
+                    Console.Write(BL[step]);
+                    Console.Write(BM[step]);
+                    Console.Write(BR[step]);
 
-        // TODO : use RenderBox(...) ?
+                    await Task.Delay(50);
+                }
+            });
+        else
+            spinner = Task.CompletedTask;
 
-        prompt = [
-            $"┌{new string('─', prompt_width)}┐",
-            $"│{new string(' ', prompt_width)}│",
-            ..prompt.Select((line, i) => $"│   {i switch { 0 => "╱i╲", 1 => "‾‾‾", _ => "   " }}   {line.PadRight(prompt_width - 12)}   │"),
-            $"│{new string(' ', prompt_width)}│",
-            $"└{new string('─', prompt_width)}┘",
-        ];
+        T result = await task;
+        completed = true;
 
-        int x = (width - prompt_width - 2) / 2;
-        int y = (height - prompt.Length) / 2;
+        await spinner;
 
-        Console.Write(foreground.ToVT520(ColorMode.Foreground));
+        CloseModalPrompt();
 
-        for (int i = 0; i < prompt.Length; ++i)
-        {
-            Console.SetCursorPosition(x, y + i);
-            Console.Write(prompt[i]);
-        }
+        return result;
+    }
 
-        return (x, y);
+    private void CloseModalPrompt()
+    {
+        if (Interlocked.Exchange(ref _modal_prompt, null) is { })
+            Render(true);
     }
 
     private static void RenderTitle(int x, int y, string title, bool active)
@@ -1009,7 +1087,7 @@ public sealed class Renderer
             Console.Write("Koalitionsmöglichkeiten:");
 
             Coalition[] coalitions = poll is { } ? Coalitions.Select(parties => new Coalition(poll, parties))
-                                                             .Where(c => c.CoalitionPercentage > .20 && c.CoalitionParties.Length >= 1) // filter coalitions where all other parties are < 5%
+                                                             .Where(c => c.CoalitionPercentage >  .20 & c.CoalitionParties.Length >= 1) // filter coalitions where all other parties are < 5%
                                                              .OrderByDescending(c => c.CoalitionPercentage)
                                                              .Distinct()
                                                              .Take(vertical_space)
