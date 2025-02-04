@@ -337,8 +337,10 @@ public sealed class Renderer
                 InvalidateAll();
 
                 Console.FullClear();
-                Console.ResetGraphicRenditions();
             }
+
+            Console.ResetGraphicRenditions();
+            Console.CursorVisible = false;
 
             (int min_width, int min_height) = _min_sizes[_render_size];
             int width = Console.WindowWidth;
@@ -481,15 +483,17 @@ public sealed class Renderer
             null
         );
 
+        Console.DiscardAllPendingInput();
+        Console.ReadKey(true);
+
         CloseModalPrompt();
-        Console.HardResetAndFullClear();
 
         return result;
     }
 
     private (int x, int y) RenderModalPrompt(string content, ConsoleColor foreground, ConsoleColor background, ModalPromptIcon icon)
     {
-        Render(true);
+        Render(false);
 
         return (_modal_prompt = new(content, foreground, background, icon)).Render();
     }
@@ -626,6 +630,7 @@ public sealed class Renderer
             ForegroundColor = color,
             AreColorsInverted = active,
         });
+        Console.ResetGraphicRenditions();
 
         RenderHoverUnderline(x, y + 1, width.Value, hover);
     }
@@ -1434,6 +1439,8 @@ public sealed class Renderer
 
         Invalidate(process());
         Render(false);
+
+        Console.DiscardAllPendingInput();
     }
 }
 

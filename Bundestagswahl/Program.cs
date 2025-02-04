@@ -1,14 +1,12 @@
 ﻿global using ConsoleColor = Unknown6656.Console.ConsoleColor;
 global using Console = Unknown6656.Console.Console;
 
-using System;
-
 using Unknown6656.Console;
 
 using Bundestagswahl;
 
 
-
+Console.CursorVisible = false;
 Console.CancelKeyPress += (_, evt) =>
 {
     Console.ResetGraphicRenditions();
