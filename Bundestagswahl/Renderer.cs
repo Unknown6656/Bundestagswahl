@@ -685,6 +685,8 @@ public sealed class Renderer
                 Blink = TextBlinkMode.Slow,
                 ForegroundColor = ConsoleColor.Gray,
             });
+
+        Console.ResetGraphicRenditions();
     }
 
     private void RenderFrame(int width, int height, int timeplot_height, bool clear)
