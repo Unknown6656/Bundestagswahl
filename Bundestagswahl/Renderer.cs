@@ -127,7 +127,7 @@ public class ModalPromptInfo
     {
         Foreground = foreground;
         Background = background;
-        ContentLines = content.SplitIntoLines();
+        ContentLines = content.Replace("\r\n", "\n").Replace("\r", "").SplitIntoLines();
         SpinnerPosition = (-1, -1);
         Icon = icon;
 
@@ -176,6 +176,7 @@ public class ModalPromptInfo
         SpinnerPosition = (x + 4, y + 2);
 
         Console.Write(Foreground.ToVT520(ColorMode.Foreground));
+        Console.DiscardAllPendingInput();
 
         for (int i = 0; i < PromptHeight; ++i)
         {
@@ -495,18 +496,12 @@ public sealed class Renderer
             task()
         );
 
-        await RenderModalPromptUntil<__empty>(
+        await RenderModalPromptUntilKeyPress(
             $"{result.PollCount} Umfrageergebnisse wurden erfolgreich geladen.\nZum Starten bitte eine beliebige Taste drücken.",
             ConsoleColor.Green,
             ConsoleColor.DarkGreen,
-            ModalPromptIcon.Info,
-            null
+            ModalPromptIcon.Info
         );
-
-        Console.DiscardAllPendingInput();
-        Console.ReadKey(true);
-
-        CloseModalPrompt();
 
         return result;
     }
@@ -563,6 +558,19 @@ public sealed class Renderer
         await spinner;
 
         return result;
+    }
+
+    private async Task<ConsoleKeyInfo> RenderModalPromptUntilKeyPress(string content, ConsoleColor foreground, ConsoleColor background, ModalPromptIcon icon)
+    {
+        await RenderModalPromptUntil<__empty>(content, foreground, background, icon, null);
+
+        Console.DiscardAllPendingInput();
+
+        ConsoleKeyInfo key = Console.ReadKey(true);
+
+        CloseModalPrompt();
+
+        return key;
     }
 
     private void CloseModalPrompt()
@@ -802,18 +810,26 @@ public sealed class Renderer
         if (!_invalidate.HasFlag(RenderInvalidation.HistoricPlot))
             return;
 
+
+        int left = Map.Width + 33;
         double max_perc = 1;
         DateOnly end_date = DateTime.UtcNow.ToDateOnly();
         DateOnly start_date = end_date;
-        int left = Map.Width + 33;
-
-        width -= left;
 
         if (historic.PollCount > 0)
         {
             max_perc = historic.Polls.Max(p => p[p.StrongestParty]);
             start_date = historic.OldestPoll!.LatestDate;
             end_date = historic.MostRecentPoll!.LatestDate;
+        }
+
+        width -= left;
+
+        if (_sixel_enabled)
+        {
+            RenderHistoricPlotSixel(width, height, historic, max_perc, start_date, end_date);
+
+            return;
         }
 
         long start_ticks = start_date.ToDateTime().Ticks;
@@ -936,6 +952,8 @@ public sealed class Renderer
     {
         int sixel_width = (width - 15) * 10;
         int sixel_height = (height - 5) * 20;
+
+
 
 
 
@@ -1323,13 +1341,28 @@ public sealed class Renderer
             Console.Write("NEIN");
         }
 
+        Console.SetCursorPosition(3, top + 1);
+        Console.ResetGraphicRenditions();
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("       GDI32/GDI+ installiert: ");
+
+        if (LibGDIPlusInstaller.IsGDIInstalled)
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.Write("JA");
+        }
+        else
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.Write("NEIN");
+        }
+
         Console.SetCursorPosition(3, top + 2);
         Console.ForegroundColor = ConsoleColor.DarkGray;
         Console.Write("              Sixel Rendering: ");
 
-        RenderButton(left + 31, top + 2, 9, _sixel_enabled ? "AN" : "AUS", ConsoleColor.Default, _sixel_enabled, false);
-        RenderButton(left, top + 4, 40, "DATENGRUNDLAGE/UMFRAGEN AKTUALISIEREN", ConsoleColor.Default, false, false);
-
+        RenderButton(left + 31, top + 2, 9, _sixel_enabled ? "AN" : "AUS", ConsoleColor.Default, _sixel_enabled, _current_view is Views.Options && _option_cursor is OptionsCursorPosition.SixelRendering);
+        RenderButton(left, top + 4, 40, "DATENGRUNDLAGE/UMFRAGEN AKTUALISIEREN", ConsoleColor.Default, false, _current_view is Views.Options && _option_cursor is OptionsCursorPosition.RefreshData);
     }
 
     private static RenderInvalidation GetRenderInvalidation(Views view) => view switch
@@ -1516,6 +1549,34 @@ public sealed class Renderer
                     {
                         case OptionsCursorPosition.SixelRendering:
                             _sixel_enabled ^= true;
+
+                            if (_sixel_enabled && !LibGDIPlusInstaller.IsGDIInstalled)
+                            {
+                                await RenderModalPromptUntilKeyPress(
+                                    """
+                                    Sixel Rendering ist zwar eine rein text-basierte Bildgebungsmethode, jedoch wird für dieses Programm im Hintergrund
+                                    zum internen Rendering die Grafikbibliothek 'libgdiplus.so' benötigt. Diese scheint jedoch auf Ihrem System nicht
+                                    installiert zu sein. Bitte führen Sie zur Installation der Grafikbibliothek die folgenden Befehle im Terminal aus:
+
+                                    Linux:
+                                        $ sudo apt update
+                                        $ sudo apt install libx11-dev libc6-dev
+                                        $ sudo apt install libgdiplus
+
+                                    MacOS
+                                        $ /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+                                        $ brew install mono-libgdiplus
+
+                                    Drücken Sie eine beliebige Taste, um diesen Warnhinweis wieder zu schließen.
+                                    Bitte beachten Sie, dass das Sixel Rendering hierbei nicht aktiviert wird.
+                                    """,
+                                    ConsoleColor.Red,
+                                    ConsoleColor.DarkRed,
+                                    ModalPromptIcon.Exclamation
+                                );
+
+                                _sixel_enabled = false;
+                            }
 
                             return GetRenderInvalidation(Views.Options)
                                  | GetRenderInvalidation(Views.Historic);

@@ -52,9 +52,9 @@
     <ItemGroup>
         <PackageReference Include="HtmlAgilityPack" Version="1.11.72" />
         <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.1" />
-        <PackageReference Include="Unknown6656.Console" Version="1.1.316.8935" />
+        <PackageReference Include="Unknown6656.Console" Version="1.3.368.8937" />
         <PackageReference Include="Unknown6656.Generics" Version="1.0.17" />
-        <PackageReference Include="Unknown6656.Runtime" Version="1.1.3" />
+        <PackageReference Include="Unknown6656.Runtime" Version="1.1.4" />
     </ItemGroup>
     <ItemGroup>
         <None Include="favicon.ico">
