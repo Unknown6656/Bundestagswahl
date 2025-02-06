@@ -77,6 +77,12 @@ public enum SourceCursorPosition
     DateSelector,
 }
 
+public enum OptionsCursorPosition
+{
+    SixelRendering,
+    RefreshData,
+}
+
 [Flags]
 public enum RenderInvalidation
     : int
@@ -200,7 +206,7 @@ public sealed class Renderer
 
     private static readonly Dictionary<RenderSize, (int MinWidth, int MinHeight)> _min_sizes = new()
     {
-        [RenderSize.Small] = (155, 55),
+        [RenderSize.Small] = (155, 58),
         [RenderSize.Medium] = (170, 71),
         [RenderSize.Large] = (190, 99),
     };
@@ -260,6 +266,7 @@ public sealed class Renderer
     private StateCursorPosition _state_cursor = StateCursorPosition.Federal;
     private SourceCursorPosition _source_cursor = SourceCursorPosition.Button_Last40Years;
     private SourceCursorPosition? _current_source = SourceCursorPosition.Button_Last40Years;
+    private OptionsCursorPosition _option_cursor = OptionsCursorPosition.SixelRendering;
     private ModalPromptInfo? _modal_prompt = null;
     private Views _current_view = Views.States;
     private RenderInvalidation _invalidate;
@@ -813,7 +820,6 @@ public sealed class Renderer
         }
         double get_xpos(DateOnly date) => (date.ToDateTime().Ticks - start_ticks) / (double)(end_ticks - start_ticks);
 
-
         int graph_height = height - 5;
         int graph_width = width - 15;
 
@@ -915,6 +921,17 @@ public sealed class Renderer
                     prev[party] = percentage;
                 }
         }
+    }
+
+    private void RenderHistoricPlotSixel(int width, int height, MergedPollHistory historic, double max_perc, DateOnly start_date, DateOnly end_date)
+    {
+        int sixel_width = (width - 15) * 10;
+        int sixel_height = (height - 5) * 20;
+
+
+
+
+
     }
 
     private void RenderSourceSelection(int left, int width, int height)
@@ -1469,13 +1486,49 @@ public sealed class Renderer
                     }
 
                 #endregion
+                #region OPTIONS
+
+                case (KEY_UP, Views.Options):
+                case (KEY_DOWN, Views.Options):
+                    {
+                        int offs = key.Key == KEY_UP ? -1 : 1;
+                        int max = Enum.GetValues<OptionsCursorPosition>().Select(v => (int)v).Max() + 1;
+
+                        _option_cursor = (OptionsCursorPosition)(((int)_option_cursor + max + offs) % max);
+
+                        return GetRenderInvalidation(Views.Options);
+                    }
+                case (KEY_ENTER, Views.Options):
+                    switch (_option_cursor)
+                    {
+                        case OptionsCursorPosition.SixelRendering:
+                            _sixel_enabled ^= true;
+
+                            return GetRenderInvalidation(Views.Options)
+                                 | GetRenderInvalidation(Views.Historic);
+                        case OptionsCursorPosition.RefreshData:
+                            _option_cursor = OptionsCursorPosition.SixelRendering;
+                            _current_view = Views.States;
+
+                            await PollFetcher.PollDatabase.Clear();
+
+                            PollFetcher.PollDatabase.Save();
+
+                            await FetchAllPollsAsync();
+
+                            goto default;
+                        default:
+                            return RenderInvalidation.None;
+                    }
+
+                #endregion
 
                 default:
                     return RenderInvalidation.None;
             }
         }
 
-        Invalidate(process());
+        Invalidate(await process());
         Render(false);
     }
 }
