@@ -272,6 +272,7 @@ public sealed class Renderer
     private RenderInvalidation _invalidate;
     private RenderSize _render_size;
     private bool _sixel_enabled;
+    private bool _too_small;
 
 
     public bool IsActive { get; private set; } = true;
@@ -363,9 +364,13 @@ public sealed class Renderer
                 );
 #pragma warning restore CA1416
 
+            _too_small = false;
+
             if (width < min_width || height < min_height)
                 if (_render_size is RenderSize.Small)
                 {
+                    _too_small = true;
+
                     InvalidateAll();
 
                     Console.CurrentGraphicRendition = new()
@@ -376,13 +381,15 @@ public sealed class Renderer
                     };
                     Console.FullClear();
                     Console.Write($"""
-                     ┌─────────────────────────────────────────────┐
-                     │    ⚠️ ⚠️ CONSOLE WINDOW TOO SMALL ⚠️ ⚠️     │
-                     ├─────────────────────────────────────────────┤
-                     │ Please resize this window to a minimum size │
-                     │ of {min_width,3} x {min_height,2}. Current window size: {width,3} x {height,2}  │
-                     │ You may alternatively reduce the font size. │
-                     └─────────────────────────────────────────────┘
+                     ┌─────────────────────────────────────────┐
+                     │       ⚠️ ⚠️ FENSTER ZU KLEIN ⚠️ ⚠️      │
+                     ├─────────────────────────────────────────┤
+                     │ Bitte ändern Sie die Größe des Fensters │
+                     │ auf mindestens {min_width,3} x {min_height,2}. Die aktuelle   │
+                     | Fenstergröße beträgt {width,3} x {height,2}.          │
+                     │ Alternativ können Sie die Schriftgröße  │
+                     │ verkleinern oder den Zoomfaktor ändern. │
+                     └─────────────────────────────────────────┘
                     """);
                 }
                 else
@@ -427,7 +434,7 @@ public sealed class Renderer
         await FetchAllPollsAsync();
 
         while (Console.ReadKey(true) is { Key: not KEY_EXIT } key)
-            HandleInput(key);
+            await HandleInput(key);
     }
 
     private async Task FetchAllPollsAsync()
@@ -1332,12 +1339,16 @@ public sealed class Renderer
                         | RenderInvalidation.PollResults
                         | RenderInvalidation.Compass
                         | RenderInvalidation.Coalitions,
+        Views.Options => RenderInvalidation.Options,
         _ => RenderInvalidation.None,
     };
 
-    public void HandleInput(ConsoleKeyInfo key)
+    public async Task HandleInput(ConsoleKeyInfo key)
     {
-        RenderInvalidation process()
+        if (_too_small)
+            return;
+
+        async Task<RenderInvalidation> process()
         {
             switch ((key.Key, _current_view))
             {
