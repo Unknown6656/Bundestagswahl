@@ -950,8 +950,8 @@ public sealed class Renderer
 
     private void RenderHistoricPlotSixel(int width, int height, MergedPollHistory historic, double max_perc, DateOnly start_date, DateOnly end_date)
     {
-        int sixel_width = (width - 15) * 10;
-        int sixel_height = (height - 5) * 20;
+        (_, _, int sixel_width, int sixel_height) = SixelImage.GetSixelSize(width - 15, height - 5);
+
 
 
 
@@ -1579,7 +1579,7 @@ public sealed class Renderer
                             }
 
                             return GetRenderInvalidation(Views.Options)
-                                 | GetRenderInvalidation(Views.Historic);
+                                 | RenderInvalidation.HistoricPlot;
                         case OptionsCursorPosition.RefreshData:
                             _option_cursor = OptionsCursorPosition.SixelRendering;
                             _current_view = Views.States;
