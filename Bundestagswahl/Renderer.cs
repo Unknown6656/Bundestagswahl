@@ -13,6 +13,7 @@ using Unknown6656.Generics.Text;
 using Unknown6656.Generics;
 using Unknown6656.Runtime;
 using Unknown6656.Console;
+using System.Reflection.Metadata.Ecma335;
 
 namespace Bundestagswahl;
 
@@ -68,14 +69,17 @@ public enum StateCursorPosition
 public enum SourceCursorPosition
 {
     Button_Last40Years,
+    Button_Last30Years,
     Button_Last20Years,
     Button_Last16Years,
     Button_Last12Years,
     Button_Last8Years,
     Button_Last4Years,
-    Button_Last1Year,
+    Button_Last2Years,
+    Button_LastYear,
     Button_Last6Months,
     Button_Last3Months,
+    Button_LastMonth,
     DateSelector,
 }
 
@@ -947,11 +951,6 @@ public sealed class Renderer
                     prev[party] = percentage;
                 }
         }
-
-
-
-        // for debug reasons only
-        RenderHistoricPlotSixel(left + 7, width, height, historic, max_perc, start_date, end_date, _selected_range?.Cursor);
     }
 
     private void RenderHistoricPlotSixel(int left, int width, int height, MergedPollHistory historic, float max_perc, DateOnly start_date, DateOnly end_date, DateOnly? selected_date)
@@ -968,7 +967,7 @@ public sealed class Renderer
         using Graphics g = Graphics.FromImage(bitmap);
 
         g.Clear(Color.Transparent);
-        g.DrawRectangle(Pens.Yellow, CHAR_W >> 1, CHAR_H >> 1, sixel_width - 1 - (CHAR_W >> 1), sixel_height - 1 - (CHAR_H >> 1));
+        //g.DrawRectangle(Pens.Yellow, CHAR_W >> 1, CHAR_H >> 1, sixel_width - 1 - (CHAR_W >> 1), sixel_height - 1 - (CHAR_H >> 1));
 
 
         float get_xpos(DateOnly date)
@@ -978,22 +977,41 @@ public sealed class Renderer
             return (CHAR_W >> 1) + (d * (sixel_width - (CHAR_W >> 1) - 1));
         }
 
-        float get_ypos(float percentage) => percentage / max_perc;
+        float get_ypos(float percentage) => (CHAR_H >> 1) + (1 - percentage / max_perc) * (sixel_height - 1 - (CHAR_H >> 1));
 
 
 
-        foreach (var lol in historic.Polls)
+        (float x, Dictionary<Party, float> y) last = (float.NaN, Party.All.ToDictionary(LINQ.id, p => float.NaN));
+        Dictionary<Party, Pen> pens = Party.All.ToDictionary(LINQ.id, p => new Pen(p.Color.ToColor() ?? Color.Black));
+
+        foreach (MergedPoll lol in historic.Polls)
         {
             float x = get_xpos(lol.EarliestDate);
 
-            g.DrawLine(Pens.Green, x, 0, x, sixel_height - 1);
+            if (float.IsNaN(last.x))
+                last = (x, lol.Percentages.ToDictionary());
+            else if (last.x == x)
+                continue;
+
+            foreach ((Party party, float value) in lol.Percentages)
+            {
+                float y = get_ypos(value);
+
+                g.DrawLine(pens[party], last.x, get_ypos(last.y.TryGetValue(party, out float p) ? p : 0), x, y);
+                last.y[party] = value;
+            }
+
+            last.x = x;
         }
-
-
-
 
         Console.SetCursorPosition(left, 2);
         Console.Write((SixelImage)bitmap, settings);
+
+        for (int y = 2; y < height - 4; ++y)
+        {
+            Console.SetCursorPosition(left + width - 13, y);
+            Console.Write(' ');
+        }
     }
 
     private void RenderSourceSelection(int left, int width, int height)
@@ -1016,14 +1034,17 @@ public sealed class Renderer
             foreach ((SourceCursorPosition cursor, string text) in new[]
             {
                 (SourceCursorPosition.Button_Last40Years, "40y"),
+                (SourceCursorPosition.Button_Last30Years, "30y"),
                 (SourceCursorPosition.Button_Last20Years, "20y"),
                 (SourceCursorPosition.Button_Last16Years, "16y"),
                 (SourceCursorPosition.Button_Last12Years, "12y"),
                 (SourceCursorPosition.Button_Last8Years, "8 y"),
                 (SourceCursorPosition.Button_Last4Years, "4 y"),
-                (SourceCursorPosition.Button_Last1Year, "1 y"),
+                (SourceCursorPosition.Button_Last2Years, "2 y"),
+                (SourceCursorPosition.Button_LastYear, "1 y"),
                 (SourceCursorPosition.Button_Last6Months, "6 m"),
                 (SourceCursorPosition.Button_Last3Months, "3 m"),
+                (SourceCursorPosition.Button_LastMonth, "1 m"),
             })
             {
                 RenderButton(
@@ -1042,7 +1063,7 @@ public sealed class Renderer
 
             bool active = _source_cursor is SourceCursorPosition.DateSelector && _current_view is Views.Source;
 
-            RenderDateSelector(left, 12, "DATUM", 23, _selected_range?.Cursor, active);
+            RenderDateSelector(left, 14, "DATUM", 23, _selected_range?.Cursor, active);
         }
         else
         {
@@ -1492,7 +1513,7 @@ public sealed class Renderer
 
                         return GetRenderInvalidation(Views.Source);
                     }
-                case (KEY_ENTER, Views.Source) when _source_cursor <= SourceCursorPosition.Button_Last3Months:
+                case (KEY_ENTER, Views.Source) when _source_cursor <= SourceCursorPosition.Button_LastMonth:
                     {
                         bool changed = _source_cursor != _current_source;
 
@@ -1503,14 +1524,17 @@ public sealed class Renderer
                             (int years, int months) = _current_source switch
                             {
                                 SourceCursorPosition.Button_Last40Years => (40, 0),
+                                SourceCursorPosition.Button_Last30Years => (30, 0),
                                 SourceCursorPosition.Button_Last20Years => (20, 0),
                                 SourceCursorPosition.Button_Last16Years => (16, 0),
                                 SourceCursorPosition.Button_Last12Years => (12, 0),
                                 SourceCursorPosition.Button_Last8Years => (8, 0),
                                 SourceCursorPosition.Button_Last4Years => (4, 0),
-                                SourceCursorPosition.Button_Last1Year => (1, 0),
+                                SourceCursorPosition.Button_Last2Years => (2, 0),
+                                SourceCursorPosition.Button_LastYear => (1, 0),
                                 SourceCursorPosition.Button_Last6Months => (0, 6),
                                 SourceCursorPosition.Button_Last3Months => (0, 3),
+                                SourceCursorPosition.Button_LastMonth => (0, 1),
                                 _ => (0, 0),
                             };
 
