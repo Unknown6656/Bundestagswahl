@@ -19,13 +19,13 @@ public interface IPoll
 
     public Party StrongestParty { get; }
 
-    public double this[Party party] { get; }
+    public float this[Party party] { get; }
 }
 
 public sealed class Coalition
     : IPoll
 {
-    private readonly Dictionary<Party, double> _values = [];
+    private readonly Dictionary<Party, float> _values = [];
 
 
     public Party[] CoalitionParties { get; }
@@ -34,9 +34,9 @@ public sealed class Coalition
 
     public Party? StrongestParty { get; }
 
-    public double CoalitionPercentage { get; }
+    public float CoalitionPercentage { get; }
 
-    public double OppositionPercentage { get; }
+    public float OppositionPercentage { get; }
 
     public IPoll UnderlyingPoll { get; }
 
@@ -45,7 +45,7 @@ public sealed class Coalition
     public DateOnly Date => UnderlyingPoll.Date;
 
 
-    public double this[Party party] => _values.TryGetValue(party, out double percentage) ? percentage : 0;
+    public float this[Party party] => _values.TryGetValue(party, out float percentage) ? percentage : 0;
 
 
     public Coalition(IPoll poll, params Party[] parties)
@@ -56,7 +56,7 @@ public sealed class Coalition
         StrongestParty = CoalitionParties.MaxBy(p => poll[p]);
         CoalitionPercentage = 0;
 
-        double sum = 0;
+        float sum = 0;
 
         foreach (Party party in CoalitionParties)
         {
@@ -105,7 +105,7 @@ file enum RawPollFlags
 public sealed class RawPoll
     : IPoll
 {
-    public static RawPoll Empty { get; } = new(new(1970, 1, 1), null, null, null, true, new Dictionary<Party, double>());
+    public static RawPoll Empty { get; } = new(new(1970, 1, 1), null, null, null, true, new Dictionary<Party, float>());
 
 
     public DateOnly Date { get; }
@@ -125,12 +125,12 @@ public sealed class RawPoll
 
     public Party StrongestParty => Results.OrderByDescending(static kvp => kvp.Value).FirstOrDefault().Key ?? Party.__OTHER__;
 
-    internal IReadOnlyDictionary<Party, double> Results { get; }
+    internal IReadOnlyDictionary<Party, float> Results { get; }
 
-    public double this[Party p] => Results.ContainsKey(p) ? Results[p] : 0;
+    public float this[Party p] => Results.ContainsKey(p) ? Results[p] : 0;
 
 
-    public RawPoll(DateOnly date, State? state, string? pollster, string? source_uri, bool synthetic, Dictionary<Party, double> values)
+    public RawPoll(DateOnly date, State? state, string? pollster, string? source_uri, bool synthetic, Dictionary<Party, float> values)
     {
         Date = date;
         State = state;
@@ -139,20 +139,20 @@ public sealed class RawPoll
         IsSynthetic = synthetic;
 
         if (!values.ContainsKey(Party.__OTHER__))
-            values[Party.__OTHER__] = Math.Max(0, 1 - values.Values.Sum());
+            values[Party.__OTHER__] = float.Max(0, 1 - values.Values.Sum());
 
-        double sum = values.Values.Sum();
+        float sum = values.Values.Sum();
 
         if (sum is not 1 or 0)
             values = values.ToDictionary(pair => pair.Key, pair => pair.Value / sum);
 
-        Results = new ReadOnlyDictionary<Party, double>(values);
+        Results = new ReadOnlyDictionary<Party, float>(values);
     }
 
-    public RawPoll(DateOnly date, State? state, string? pollster, string? source_uri, bool synthetic, Dictionary<string, double> values)
-        : this(date, state, pollster, source_uri, synthetic, new Func<Dictionary<Party, double>>(() =>
+    public RawPoll(DateOnly date, State? state, string? pollster, string? source_uri, bool synthetic, Dictionary<string, float> values)
+        : this(date, state, pollster, source_uri, synthetic, new Func<Dictionary<Party, float>>(() =>
         {
-            Dictionary<Party, double> percentages = [];
+            Dictionary<Party, float> percentages = [];
 
             foreach (string id in values.Keys)
                 if (Party.All.FirstOrDefault(p => p.Identifier == id) is Party p)
@@ -191,7 +191,7 @@ public sealed class RawPoll
 
         writer.Write(Results.Count);
 
-        foreach ((Party party, double result) in Results)
+        foreach ((Party party, float result) in Results)
         {
             writer.Write(party.Identifier);
             writer.Write(result);
@@ -222,15 +222,15 @@ public sealed class RawPoll
             bool synth = flags.HasFlag(RawPollFlags.IsSynthetic);
             int count = reader.ReadInt32();
 
-            Dictionary<Party, double> results = new()
+            Dictionary<Party, float> results = new()
             {
-                [Party.__OTHER__] = 0d
+                [Party.__OTHER__] = 0f
             };
 
             for (int i = 0; i < count; ++i)
             {
                 string identifier = reader.ReadString();
-                double result = reader.ReadDouble();
+                float result = reader.ReadSingle();
 
                 if (Party.All.FirstOrDefault(p => p.Identifier == identifier) is Party party)
                     results[party] = result;
@@ -320,14 +320,14 @@ public sealed class PollHistory
     //        MergedPoll prev_poll = GetSlice(p, states);
     //        MergedPoll next_poll = GetSlice(n, states);
 
-    //        double delta = (date - p).TotalDays / (n - p).TotalDays;
+    //        float delta = (date - p).TotalDays / (n - p).TotalDays;
 
-    //        Dictionary<Party, double> results = [];
+    //        Dictionary<Party, float> results = [];
 
     //        foreach (Party party in Party.All)
     //        {
-    //            double prev_val = prev_poll[party];
-    //            double next_val = next_poll[party];
+    //            float prev_val = prev_poll[party];
+    //            float next_val = next_poll[party];
 
     //            results[party] = prev_val + (next_val - prev_val) * delta;
     //        }
@@ -391,7 +391,7 @@ public sealed class PollHistory
 public sealed class MergedPoll
     : IPoll
 {
-    private const double EAST_BERLIN_PERCENTAGE = .37516441883;
+    private const float EAST_BERLIN_PERCENTAGE = .37516441883f;
     private static readonly Dictionary<State, int> _population_per_state = new()
     {
         [State.BW] = 11_280_000,
@@ -419,7 +419,7 @@ public sealed class MergedPoll
 
     public Party StrongestParty { get; }
 
-    public (Party party, double percentage)[] Percentages => [..from party in Party.All
+    public (Party party, float percentage)[] Percentages => [..from party in Party.All
                                                                 let perc = this[party]
                                                                 where perc > 0
                                                                 orderby perc descending
@@ -443,9 +443,9 @@ public sealed class MergedPoll
         }
     }
 
-    internal IReadOnlyDictionary<Party, double> Results { get; }
+    internal IReadOnlyDictionary<Party, float> Results { get; }
 
-    public double this[Party p] => Results.ContainsKey(p) ? Results[p] : 0;
+    public float this[Party p] => Results.ContainsKey(p) ? Results[p] : 0;
 
 
     static MergedPoll()
@@ -466,13 +466,13 @@ public sealed class MergedPoll
             EarliestDate = polls.Min(static p => p.Date);
             LatestDate = polls.Max(static p => p.Date);
 
-            Dictionary<Party, double> results = [];
-            double total = 0;
+            Dictionary<Party, float> results = [];
+            float total = 0;
 
             foreach (Party party in Party.All)
             {
-                double sum = 0;
-                double pop = 0;
+                float sum = 0;
+                float pop = 0;
 
                 foreach (RawPoll poll in polls)
                 {
@@ -482,7 +482,7 @@ public sealed class MergedPoll
                     pop += p;
                 }
 
-                sum = Math.Max(sum / pop, 0);
+                sum = float.Max(sum / pop, 0);
                 results[party] = sum;
                 total += sum;
             }
@@ -490,7 +490,7 @@ public sealed class MergedPoll
             foreach (Party party in Party.All)
                 results[party] /= total;
 
-            Results = new ReadOnlyDictionary<Party, double>(results);
+            Results = new ReadOnlyDictionary<Party, float>(results);
             StrongestParty = Results.OrderByDescending(static kvp => kvp.Value).FirstOrDefault().Key ?? Party.__OTHER__;
         }
         else
@@ -500,7 +500,7 @@ public sealed class MergedPoll
             States = [];
             EarliestDate =
             LatestDate = new(now.Year, now.Month, now.Day);
-            Results = Party.All.ToDictionary(LINQ.id, static p => 0d);
+            Results = Party.All.ToDictionary(LINQ.id, static p => 0f);
             StrongestParty = Party.__OTHER__;
         }
     }
@@ -552,7 +552,7 @@ public sealed class MergedPollHistory
             string pollsters = merged.Polls.Select(p => p.Pollster).Distinct().StringJoin(";");
             string sources = merged.Polls.Select(p => p.SourceURI).Distinct().StringJoin(";");
             string states = merged.Polls.Select(p => p.State?.ToString() ?? "DE").Distinct().StringJoin(";");
-            double synthetic = (double)merged.Polls.Count(p => p.IsSynthetic) / merged.Polls.Length;
+            float synthetic = (float)merged.Polls.Count(p => p.IsSynthetic) / merged.Polls.Length;
 
             sb.AppendLine($"{i},{merged.EarliestDate:yyyy-MM-dd},{merged.LatestDate:yyyy-MM-dd},\"{pollsters}\",\"{sources}\",{states},{synthetic:P2},{parties.Select(p => merged[p].ToString("P2")).StringJoin(",")}");
         }

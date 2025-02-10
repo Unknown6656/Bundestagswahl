@@ -399,7 +399,7 @@ public sealed class Renderer
                 ++CurrentRenderSize;
             else
             {
-                int timeplot_height = (int)double.Clamp(height * height * .006, 20, height * .6);
+                int timeplot_height = (int)float.Clamp(height * height * .006f, 20, height * .6f);
 
                 RenderFrame(width, height, timeplot_height, clear);
                 RenderMap();
@@ -810,9 +810,8 @@ public sealed class Renderer
         if (!_invalidate.HasFlag(RenderInvalidation.HistoricPlot))
             return;
 
-
-        int left = Map.Width + 33;
-        double max_perc = 1;
+        int left = Map.Width + 35;
+        float max_perc = 1;
         DateOnly end_date = DateTime.UtcNow.ToDateOnly();
         DateOnly start_date = end_date;
 
@@ -825,32 +824,25 @@ public sealed class Renderer
 
         width -= left;
 
-        if (_sixel_enabled)
-        {
-            RenderHistoricPlotSixel(width, height, historic, max_perc, start_date, end_date);
-
-            return;
-        }
-
         long start_ticks = start_date.ToDateTime().Ticks;
         long end_ticks = end_date.ToDateTime().Ticks;
 
-        DateOnly get_date(double d)
+        DateOnly get_date(float d)
         {
-            d = double.IsFinite(d) ? double.Clamp(d, 0, 1) : 1;
+            d = float.IsFinite(d) ? float.Clamp(d, 0, 1) : 1;
 
             long t = (long)(d * (end_ticks - start_ticks)) + start_ticks;
 
             return new DateTime(t).ToDateOnly();
         }
-        double get_xpos(DateOnly date) => (date.ToDateTime().Ticks - start_ticks) / (double)(end_ticks - start_ticks);
+        float get_xpos(DateOnly date) => (date.ToDateTime().Ticks - start_ticks) / (float)(end_ticks - start_ticks);
 
         int graph_height = height - 5;
         int graph_width = width - 15;
 
         for (int y = 0; y <= graph_height; ++y)
         {
-            Console.SetCursorPosition(left + 2, 2 + y);
+            Console.SetCursorPosition(left, 2 + y);
 
             if (y < graph_height)
             {
@@ -895,18 +887,18 @@ public sealed class Renderer
 
                 for (int y = 0; y < graph_height; ++y)
                 {
-                    Console.SetCursorPosition(left + x + 10, y + 2);
+                    Console.SetCursorPosition(left + x + 8, y + 2);
                     Console.Write('│');
                 }
             }
 
             if (poll is { })
-                foreach ((Party party, double percentage) in (poll.Percentages as IEnumerable<(Party, double)>).Reverse())
+                foreach ((Party party, float percentage) in (poll.Percentages as IEnumerable<(Party, float)>).Reverse())
                 {
                     int y = (int)(graph_height * (1 - percentage / max_perc));
-                    double ydiff = graph_height * (1 - percentage / max_perc) - y;
+                    float ydiff = graph_height * (1 - percentage / max_perc) - y;
 
-                    Console.SetCursorPosition(left + 10 + x, 2 + y);
+                    Console.SetCursorPosition(left + x + 8, 2 + y);
                     Console.ForegroundColor = party.Color;
 
                     if (x == selected_x)
@@ -918,7 +910,7 @@ public sealed class Renderer
                         // TODO : fix subpixel rendering!!!!
 
 #if ENABLE_HISTORIC_PLOT_SUBPIXEL_RENDERING
-                        int braille_left = Math.Min(Math.Max(braille_right - percentage.CompareTo(prev[party]), 0), 4);
+                        int braille_left = float.Min(float.Max(braille_right - percentage.CompareTo(prev[party]), 0), 4);
 #else
                         int braille_left = braille_right;
 #endif
@@ -1095,21 +1087,21 @@ public sealed class Renderer
 
             if (poll is { })
             {
-                (Party party, double perc)[] seats = [.. from p in Party.LeftToRight
+                (Party party, float perc)[] seats = [.. from p in Party.LeftToRight
                                                          let perc = poll[p]
                                                          where perc > .05
                                                          select (p, perc)];
-                double total = seats.Sum(p => p.perc);
+                float total = seats.Sum(p => p.perc);
 
                 for (int i = 0; i < seats.Length; ++i)
                     seats[i].perc *= seat_width / total;
 
                 Console.SetCursorPosition(left + coalition_x, top + 2);
 
-                foreach ((Party party, double perc) in seats)
+                foreach ((Party party, float perc) in seats)
                 {
                     Console.ForegroundColor = party.Color;
-                    Console.Write(new string('⣿', (int)double.Round(perc)));
+                    Console.Write(new string('⣿', (int)float.Round(perc)));
                 }
 
                 int offs = Console.CursorLeft - left - coalition_x - seat_width;
@@ -1190,23 +1182,23 @@ public sealed class Renderer
                     });
                 }
 
-            void render_compas_dot(double lr, double al, ConsoleColor color, string dot)
+            void render_compas_dot(float lr, float al, ConsoleColor color, string dot)
             {
-                int x = (int)Math.Round((double.Clamp(lr, -1, 1) + 1) * .5 * (width - 3));
-                int y = (int)Math.Round((double.Clamp(al, -1, 1) + 1) * .5 * (height - 3));
+                int x = (int)float.Round((float.Clamp(lr, -1, 1) + 1) * .5f * (width - 3));
+                int y = (int)float.Round((float.Clamp(al, -1, 1) + 1) * .5f * (height - 3));
 
                 Console.SetCursorPosition(left + x + 1, top + y + 1);
                 Console.ForegroundColor = color;
                 Console.Write(dot);
             }
 
-            double lr_axis = 0;
-            double al_axis = 0;
+            float lr_axis = 0;
+            float al_axis = 0;
 
             if (poll is { })
                 foreach (Party party in Party.All)
                 {
-                    double perc = poll[party];
+                    float perc = poll[party];
 
                     lr_axis += perc * party.EconomicLeftRightAxis;
                     al_axis += perc * party.AuthoritarianLibertarianAxis;
@@ -1228,13 +1220,13 @@ public sealed class Renderer
         Console.SetCursorPosition(left, top);
         Console.Write("\e[m" + party.Identifier.ToString().ToUpper());
 
-        double percentage = poll?[party] ?? 0;
+        float percentage = poll?[party] ?? 0;
         string status = percentage switch
         {
-            > .666 => "\e[92m⬤⬤⬤",
-            >= .50 => "\e[90m◯\e[92m⬤⬤",
-            >= .33 => "\e[90m◯◯\e[92m⬤",
-            >= .05 => "\e[90m◯\e[33m⬤\e[90m◯",
+            > .666f => "\e[92m⬤⬤⬤",
+            >= .50f => "\e[90m◯\e[92m⬤⬤",
+            >= .33f => "\e[90m◯◯\e[92m⬤",
+            >= .05f => "\e[90m◯\e[33m⬤\e[90m◯",
             _ => "\e[31m⬤\e[90m◯◯",
         };
 
@@ -1249,14 +1241,14 @@ public sealed class Renderer
         Console.ForegroundColor = ConsoleColor.Default;
         Console.Write($" {percentage,6:P1}  {status}");
 
-        Console.CursorLeft = left + 5 + (int)Math.Round((width - 1) * .05); // 5%-Hürde
+        Console.CursorLeft = left + 5 + (int)float.Round((width - 1) * .05f); // 5%-Hürde
         Console.ForegroundColor = ConsoleColor.DarkGray;
         Console.Write('¦');
 
-        for (double d = 0; d <= 1; d += .125)
+        for (float d = 0; d <= 1; d += .125f)
         {
-            Console.CursorLeft = left + 5 + (int)Math.Round((width - 1) * d);
-            Console.Write(d is 0 or 1 or .5 ? '¦' : ':');
+            Console.CursorLeft = left + 5 + (int)float.Round((width - 1) * d);
+            Console.Write(d is 0 or 1 or .5f ? '¦' : ':');
         }
 
         int w = (int)(percentage * width);
@@ -1278,14 +1270,14 @@ public sealed class Renderer
         Console.ForegroundColor = ConsoleColor.DarkGray;
         Console.Write($"└{new string('─', width - 2)}┘");
 
-        if (coalition?.CoalitionPercentage is double perc and > 0)
+        if (coalition?.CoalitionPercentage is float perc and > 0)
         {
             // TODO : seamless coloring of percentages. maybe add traffic-light-style indicator?
             Console.ForegroundColor = perc switch
             {
-                >= .5 => ConsoleColor.Green,
-                >= .33 => ConsoleColor.Yellow,
-                >= .25 => ConsoleColor.DarkYellow,
+                >= .5f => ConsoleColor.Green,
+                >= .33f => ConsoleColor.Yellow,
+                >= .25f => ConsoleColor.DarkYellow,
                 _ => ConsoleColor.Red,
             };
             Console.Write($" {perc,6:P1} ");
@@ -1295,12 +1287,12 @@ public sealed class Renderer
 
         Console.ForegroundColor = ConsoleColor.Gray;
         Console.Write('(');
-        Console.Write(coalition?.CoalitionParties?.Select(static party => $"{party.Color.ToVT520(ColorMode.Foreground)}{party.Identifier.ToString().ToUpper()}\e[m").StringJoin(", "));
+        Console.Write(coalition?.CoalitionParties?.Select(static party => $"{party.Color.ToVT520(ConsoleColorMode.Foreground)}{party.Identifier.ToString().ToUpper()}\e[m").StringJoin(", "));
         Console.ForegroundColor = ConsoleColor.Gray;
         Console.Write(')');
         Console.ForegroundColor = ConsoleColor.DarkGray;
 
-        foreach (double d in new[] { .33, .5, .66 })
+        foreach (float d in new[] { .33, .5, .66 })
         {
             Console.CursorLeft = left + (int)(width * d) - 1;
             Console.Write('┴');
@@ -1311,7 +1303,7 @@ public sealed class Renderer
         if (coalition is { })
             foreach (Party party in coalition.CoalitionParties)
             {
-                int w = (int)double.Round(coalition[party] * width);
+                int w = (int)float.Round(coalition[party] * width);
 
                 Console.ForegroundColor = party.Color;
                 Console.Write(new string('━', w));

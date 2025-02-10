@@ -277,7 +277,7 @@ public class SQLitePollDatabase
         await foreach (_poll_info? info in ExecuteCommand<_poll_info>("SELECT [ID], [Date], [Pollster], [Source], [Synthetic], [State] FROM [PollInfo]"))
             if (info is { })
             {
-                Dictionary<Party, double> results = [];
+                Dictionary<Party, float> results = [];
 
                 await foreach (_poll_result? result in ExecuteCommand<_poll_result>($"SELECT [PollID], [Party], [Percentage] FROM [PollResults] WHERE [PollID] = {info.ID.ToString(CultureInfo.InvariantCulture)}"))
                     if (result is { } && Party.TryGetParty(result.Party) is Party party)
@@ -295,7 +295,7 @@ public class SQLitePollDatabase
 
 
     private record _poll_info(int ID, DateOnly Date, string? Pollster, string? Source, bool Synthetic, int? State);
-    private record _poll_result(int PollID, string Party, double Percentage);
+    private record _poll_result(int PollID, string Party, float Percentage);
 }
 
 public sealed class BinaryPollDatabase
@@ -404,7 +404,7 @@ file record PollInterpolator(PollHistory Polls)
                 RawPoll? prev = Polls.Polls.LastOrDefault(p => p.Date <= date && p.State == state);
                 string? pollster = prev?.Pollster ?? next?.Pollster;
                 string? source = prev?.SourceURI ?? next?.SourceURI;
-                Dictionary<Party, double>? result = null;
+                Dictionary<Party, float>? result = null;
 
                 if (prev is null && next is { })
                     result = Party.All.ToDictionary(LINQ.id, p => next[p]);
@@ -414,7 +414,7 @@ file record PollInterpolator(PollHistory Polls)
                 {
                     double interpolation = (date.ToDateTime() - prev.Date.ToDateTime()) / (next.Date.ToDateTime() - prev.Date.ToDateTime());
 
-                    result = Party.All.ToDictionary(LINQ.id, p => double.Lerp(prev[p], next[p], interpolation));
+                    result = Party.All.ToDictionary(LINQ.id, p => float.Lerp(prev[p], next[p], (float)interpolation));
                 }
 
                 if (result is { })
@@ -632,7 +632,7 @@ public sealed partial class PollFetcher(IPollDatabase database)
 
                 string pollster = pollster_index is null || pollster_index >= cells.Count ? source_uri : NormalizeText(cells[pollster_index.Value].InnerText);
                 int? participants = participant_index.HasValue && participant_index < cells.Count && int.TryParse(cells[participant_index.Value].InnerText, out int i) ? i : null;
-                Dictionary<Party, double> votes = Party.All.ToDictionary(LINQ.id, static _ => 0d);
+                Dictionary<Party, float> votes = Party.All.ToDictionary(LINQ.id, static _ => 0f);
 
                 foreach ((int index, Party party) in header)
                     foreach (string text in cells[index].ChildNodes
@@ -641,13 +641,13 @@ public sealed partial class PollFetcher(IPollDatabase database)
                                                                                                    .StringJoin(" ")
                                                                                                    .Replace("%", "")
                                                                                                    .Replace(',', '.'))))
-                        if (double.TryParse(text, out double percentage))
-                            votes[party] += percentage * .01;
+                        if (float.TryParse(text, out float percentage))
+                            votes[party] += percentage * .01f;
                         else if (text.Split([' ', '\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries) is [string ident, string perc])
-                            if (Party.TryGetParty(ident) is { } p && double.TryParse(perc, out percentage))
-                                votes[p] += percentage * .01;
+                            if (Party.TryGetParty(ident) is { } p && float.TryParse(perc, out percentage))
+                                votes[p] += percentage * .01f;
 
-                if (1 - votes.Values.Sum() is double diff and > 0)
+                if (1 - votes.Values.Sum() is float diff and > 0)
                     votes[Party.__OTHER__] += diff;
 
                 foreach (Party party in votes.Keys.ToArray())
