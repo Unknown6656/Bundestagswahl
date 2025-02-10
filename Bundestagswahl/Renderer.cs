@@ -3,6 +3,8 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Threading;
+using System.Drawing.Imaging;
+using System.Drawing;
 using System.Text;
 using System.Linq;
 using System;
@@ -161,7 +163,7 @@ public class ModalPromptInfo
 
     public (int x, int y) Render(int console_width, int console_height)
     {
-        Console.Write(Background.ToVT520(ColorMode.Foreground));
+        Console.Write(Background.ToVT520(ConsoleColorMode.Foreground));
 
         for (int _y = 1; _y < console_height - 1; ++_y)
             for (int _x = _y % 2 + 1; _x < console_width - 1; _x += 2)
@@ -175,7 +177,7 @@ public class ModalPromptInfo
 
         SpinnerPosition = (x + 4, y + 2);
 
-        Console.Write(Foreground.ToVT520(ColorMode.Foreground));
+        Console.Write(Foreground.ToVT520(ConsoleColorMode.Foreground));
         Console.DiscardAllPendingInput();
 
         for (int i = 0; i < PromptHeight; ++i)
@@ -863,22 +865,29 @@ public sealed class Renderer
 
         for (int index = 0, columns = graph_width / 9; index <= columns; ++index)
         {
-            double d = index * 9d / graph_width;
+            float d = index * 9f / graph_width;
 
-            Console.SetCursorPosition(left + index * 9 + 10, graph_height + 2);
+            Console.SetCursorPosition(left + index * 9 + 8, graph_height + 2);
             Console.ForegroundColor = ConsoleColor.DarkGray;
             Console.Write('┼');
-            Console.SetCursorPosition(left + index * 9 + 7, graph_height + 3);
+            Console.SetCursorPosition(left + index * 9 + 5, graph_height + 3);
             Console.ForegroundColor = ConsoleColor.Default;
             Console.Write(get_date(d).ToString("yyyy-MM"));
         }
 
-        Dictionary<Party, double> prev = Party.All.ToDictionary(LINQ.id, _ => 0d);
-        int? selected_x = _selected_range?.Cursor is DateOnly sel ? (int)Math.Round(get_xpos(sel) * graph_width) : null;
+        Dictionary<Party, float> prev = Party.All.ToDictionary(LINQ.id, _ => 0f);
+        int? selected_x = _selected_range?.Cursor is DateOnly sel ? (int)float.Round(get_xpos(sel) * graph_width) : null;
+
+        if (_sixel_enabled)
+        {
+            RenderHistoricPlotSixel(left + 7, width, height, historic, max_perc, start_date, end_date, _selected_range?.Cursor);
+
+            return;
+        }
 
         for (int x = 0; x <= graph_width; ++x)
         {
-            DateOnly date = get_date((double)x / graph_width);
+            DateOnly date = get_date((float)x / graph_width);
             MergedPoll? poll = historic.GetMostRecentAt(date);
 
             if (x == selected_x)
@@ -938,19 +947,53 @@ public sealed class Renderer
                     prev[party] = percentage;
                 }
         }
+
+
+
+        // for debug reasons only
+        RenderHistoricPlotSixel(left + 7, width, height, historic, max_perc, start_date, end_date, _selected_range?.Cursor);
     }
 
-    private void RenderHistoricPlotSixel(int width, int height, MergedPollHistory historic, double max_perc, DateOnly start_date, DateOnly end_date)
+    private void RenderHistoricPlotSixel(int left, int width, int height, MergedPollHistory historic, float max_perc, DateOnly start_date, DateOnly end_date, DateOnly? selected_date)
     {
-        (_, _, int sixel_width, int sixel_height) = SixelImage.GetSixelSize(width - 15, height - 5);
+        SixelRenderSettings settings = SixelRenderSettings.Default;
+        const int CHAR_W = 10;
+        const int CHAR_H = 20;
+        (_, _, int sixel_width, int sixel_height) = SixelImage.ComputeSixelDimensions(width - 14, height - 6, (CHAR_W, CHAR_H), settings);
+
+        sixel_height += (CHAR_H + 4) >> 1;
+        sixel_width += CHAR_W >> 1;
+
+        using Bitmap bitmap = new(sixel_width, sixel_height, PixelFormat.Format32bppArgb);
+        using Graphics g = Graphics.FromImage(bitmap);
+
+        g.Clear(Color.Transparent);
+        g.DrawRectangle(Pens.Yellow, CHAR_W >> 1, CHAR_H >> 1, sixel_width - 1 - (CHAR_W >> 1), sixel_height - 1 - (CHAR_H >> 1));
+
+
+        float get_xpos(DateOnly date)
+        {
+            float d = (date.ToDateTime().Ticks - start_date.ToDateTime().Ticks) / (float)(end_date.ToDateTime().Ticks - start_date.ToDateTime().Ticks);
+
+            return (CHAR_W >> 1) + (d * (sixel_width - (CHAR_W >> 1) - 1));
+        }
+
+        float get_ypos(float percentage) => percentage / max_perc;
+
+
+
+        foreach (var lol in historic.Polls)
+        {
+            float x = get_xpos(lol.EarliestDate);
+
+            g.DrawLine(Pens.Green, x, 0, x, sixel_height - 1);
+        }
 
 
 
 
-
-
-
-
+        Console.SetCursorPosition(left, 2);
+        Console.Write((SixelImage)bitmap, settings);
     }
 
     private void RenderSourceSelection(int left, int width, int height)
@@ -1027,11 +1070,11 @@ public sealed class Renderer
 
             if (poll is { })
             {
-                Console.Write($"Umfrageergebnis am {ConsoleColor.Yellow.ToVT520(ColorMode.Foreground)}{poll.Date:yyyy-MM-dd}{ConsoleColor.Default.ToVT520(ColorMode.Foreground)} für: ");
+                Console.Write($"Umfrageergebnis am {ConsoleColor.Yellow.ToVT520(ConsoleColorMode.Foreground)}{poll.Date:yyyy-MM-dd}{ConsoleColor.Default.ToVT520(ConsoleColorMode.Foreground)} für: ");
                 Console.Write(string.Join(", ", from kvp in _selected_states
                                                 where kvp.Value
                                                 let color = MapColoring.Default.States[kvp.Key].Color
-                                                select $"{color.ToVT520(ColorMode.Foreground)}{kvp.Key}{ConsoleColor.Default.ToVT520(ColorMode.Foreground)}"));
+                                                select $"{color.ToVT520(ConsoleColorMode.Foreground)}{kvp.Key}{ConsoleColor.Default.ToVT520(ConsoleColorMode.Foreground)}"));
 
                 if (Console.WindowWidth - 2 - Console.CursorLeft is int cw and > 0)
                     Console.Write(new string(' ', cw));
@@ -1542,33 +1585,54 @@ public sealed class Renderer
                         case OptionsCursorPosition.SixelRendering:
                             _sixel_enabled ^= true;
 
-                            if (_sixel_enabled && !LibGDIPlusInstaller.IsGDIInstalled)
-                            {
-                                await RenderModalPromptUntilKeyPress(
-                                    """
-                                    Sixel Rendering ist zwar eine rein text-basierte Bildgebungsmethode, jedoch wird für dieses Programm im Hintergrund
-                                    zum internen Rendering die Grafikbibliothek 'libgdiplus.so' benötigt. Diese scheint jedoch auf Ihrem System nicht
-                                    installiert zu sein. Bitte führen Sie zur Installation der Grafikbibliothek die folgenden Befehle im Terminal aus:
+                            if (_sixel_enabled)
+                                if (!_sixel_supported)
+                                {
+                                    ConsoleKeyInfo key = await RenderModalPromptUntilKeyPress(
+                                        """
+                                        Sixel Rendering scheint von Ihrem Terminal nicht unterstützt zu sein. Bitte verwenden Sie ein Terminal,
+                                        welches Sixel Rendering unterstützt. Empfohlene Terminal-Emulatoren sind 'kitty', 'mlterm' oder 'xterm'
+                                        unter Linux, 'MacTerm' oder 'iTerm2' unter MacOS, oder 'WindowsTerminal' ab Version 1.22 unter Windows.
+                                        Eine Liste möglicher Terminal-Emulatoren können Sie unter https://www.arewesixelyet.com/ einsehen.
 
-                                    Linux:
-                                        $ sudo apt update
-                                        $ sudo apt install libx11-dev libc6-dev
-                                        $ sudo apt install libgdiplus
+                                        Drücken Sie die Taste [Y], um dennoch mit Sixel Rendering fortzufahren.
+                                        Andernfalls bleibt Sixel Rendering deaktiviert.
+                                        """,
+                                        ConsoleColor.Red,
+                                        ConsoleColor.DarkRed,
+                                        ModalPromptIcon.Exclamation
+                                    );
 
-                                    MacOS
-                                        $ /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-                                        $ brew install mono-libgdiplus
+                                    if (key.Key != ConsoleKey.Y)
+                                        _sixel_enabled = false;
+                                }
+                                else if (!LibGDIPlusInstaller.IsGDIInstalled)
+                                {
+                                    await RenderModalPromptUntilKeyPress(
+                                        """
+                                        Sixel Rendering ist zwar eine rein text-basierte Bildgebungsmethode, jedoch wird für dieses Programm im Hintergrund
+                                        zum internen Rendering die Grafikbibliothek 'libgdiplus.so' benötigt. Diese scheint jedoch auf Ihrem System nicht
+                                        installiert zu sein. Bitte führen Sie zur Installation der Grafikbibliothek die folgenden Befehle im Terminal aus:
 
-                                    Drücken Sie eine beliebige Taste, um diesen Warnhinweis wieder zu schließen.
-                                    Bitte beachten Sie, dass das Sixel Rendering hierbei nicht aktiviert wird.
-                                    """,
-                                    ConsoleColor.Red,
-                                    ConsoleColor.DarkRed,
-                                    ModalPromptIcon.Exclamation
-                                );
+                                        Linux:
+                                            $ sudo apt update
+                                            $ sudo apt install libx11-dev libc6-dev
+                                            $ sudo apt install libgdiplus
 
-                                _sixel_enabled = false;
-                            }
+                                        MacOS
+                                            $ /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+                                            $ brew install mono-libgdiplus
+
+                                        Drücken Sie eine beliebige Taste, um diesen Warnhinweis wieder zu schließen.
+                                        Bitte beachten Sie, dass das Sixel Rendering hierbei nicht aktiviert wird.
+                                        """,
+                                        ConsoleColor.Red,
+                                        ConsoleColor.DarkRed,
+                                        ModalPromptIcon.Exclamation
+                                    );
+
+                                    _sixel_enabled = false;
+                                }
 
                             return GetRenderInvalidation(Views.Options)
                                  | RenderInvalidation.HistoricPlot;
