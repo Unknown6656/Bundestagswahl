@@ -257,7 +257,7 @@ public class SQLitePollDatabase
             sb.AppendLine($"""
 
             INSERT INTO [PollInfo] ([ID], [Date], [Pollster], [Source], [Synthetic], [State])
-            VALUES ({(++id).ToString(CultureInfo.InvariantCulture)}, '{poll.Date:yyyy-MM-dd}', '{poll.Pollster}', '{poll.SourceURI}', {(poll.IsSynthetic ? 1 : 0)}, {state});
+            VALUES ({(++id).ToString(CultureInfo.InvariantCulture)}, '{poll.Date:yyyy-MM-dd}', '{poll.RawPollster}', '{poll.SourceURI}', {(poll.IsSynthetic ? 1 : 0)}, {state});
 
             INSERT OR IGNORE INTO [PollResults] ([PollID], [Party], [Percentage])
             VALUES {poll.Results.Select(kvp => $"({id.ToString(CultureInfo.InvariantCulture)}, '{kvp.Key.Identifier,3}', {kvp.Value})").StringJoin(",\n       ")};
@@ -402,7 +402,7 @@ file record PollInterpolator(PollHistory Polls)
             {
                 RawPoll? next = Polls.Polls.FirstOrDefault(p => p.Date >= date && p.State == state);
                 RawPoll? prev = Polls.Polls.LastOrDefault(p => p.Date <= date && p.State == state);
-                string? pollster = prev?.Pollster ?? next?.Pollster;
+                string? pollster = prev?.RawPollster ?? next?.RawPollster;
                 string? source = prev?.SourceURI ?? next?.SourceURI;
                 Dictionary<Party, float>? result = null;
 

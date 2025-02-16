@@ -82,35 +82,41 @@ public enum SourceCursorPosition
 
     PollSource_ALL,
     PollSource_INVERT,
-    PollSource_Allensbach,
-    PollSource_Emnid,
     PollSource_Forsa,
-    PollSource_Ipsos,
+    PollSource_Emnid,
     PollSource_Infratest_Dimap,
     PollSource_Insa,
-    PollSource_GMS,
     PollSource_Politbarometer,
+    PollSource_Allensbach,
+    PollSource_GMS,
     PollSource_Yougov,
+    PollSource_Ipsos,
     PollSource_OTHERS,
 }
 
 [Flags]
 public enum PollSource
-    : ushort
+    : uint
 {
-    _NONE_          = 0b_0000_0000_0000_0000,
-    Allensbach      = 0b_0000_0000_0000_0001,
-    Emnid           = 0b_0000_0000_0000_0010,
-    Forsa           = 0b_0000_0000_0000_0100,
-    Ipsos           = 0b_0000_0000_0000_1000,
-    Infratest_Dimap = 0b_0000_0000_0001_0000,
-    Insa            = 0b_0000_0000_0010_0000,
-    GMS             = 0b_0000_0000_0100_0000,
-    Politbarometer  = 0b_0000_0000_1000_0000,
-    Yougov          = 0b_0000_0001_0000_0000,
-    _OTHERS_        = 0b_0000_0010_0000_0000,
-    _ALL_           = 0b_0000_0011_1111_1111,
-    _INVERT_        = 0b_1000_0000_0000_0000,
+    _NONE_          = 0b_0000_0000__0000_0000__0000_0000__0000_0000,
+    Allensbach      = 0b_0000_0000__0000_0000__0000_0000__0000_0001,
+    Emnid           = 0b_0000_0000__0000_0000__0000_0000__0000_0010,
+    Forsa           = 0b_0000_0000__0000_0000__0000_0000__0000_0100,
+    Ipsos           = 0b_0000_0000__0000_0000__0000_0000__0000_1000,
+    Infratest_Dimap = 0b_0000_0000__0000_0000__0000_0000__0001_0000,
+    Insa            = 0b_0000_0000__0000_0000__0000_0000__0010_0000,
+    GMS             = 0b_0000_0000__0000_0000__0000_0000__0100_0000,
+    Politbarometer  = 0b_0000_0000__0000_0000__0000_0000__1000_0000,
+    FGWahlen        = 0b_0000_0000__0000_0000__0000_0001__0000_0000,
+    Yougov          = 0b_0000_0000__0000_0000__0000_0010__0000_0000,
+    Approxima       = 0b_0000_0000__0000_0000__0000_0100__0000_0000,
+    Gess            = 0b_0000_0000__0000_0000__0000_1000__0000_0000,
+    Universität     = 0b_0001_0000__0000_0000__0000_0000__0000_0000,
+    Offiziell       = 0b_0010_0000__0000_0000__0000_0000__0000_0000,
+    _OTHERS_        = 0b_0100_0000__0000_0000__0000_0000__0000_0000,
+    _ALL_           = 0b_0111_1111__1111_1111__1111_1111__1111_1111,
+    _INVERT_        = 0b_1000_0000__0000_0000__0000_0000__0000_0000,
+    _WELL_DEFINED_  = _ALL_ ^ _OTHERS_,
 }
 
 public enum OptionsCursorPosition
@@ -513,14 +519,29 @@ public sealed class Renderer
 
     private MergedPollHistory FetchPolls()
     {
-        List<State?> states = _selected_states.SelectWhere(kvp => kvp.Value, kvp => (State?)kvp.Key).ToList();
+        List<State?> states = [.. _selected_states.SelectWhere(kvp => kvp.Value, kvp => (State?)kvp.Key)];
 
         if (_state_values.All(s => states.Contains(s)))
             states = [null];
         else if (states.Contains(State.BE))
             states.AddRange([State.BE_W, State.BE_O]);
 
-        return PollHistory[_selected_range?.Start, _selected_range?.End, states]; ;
+        DateOnly? lower = _selected_range?.Start ?? PollHistory.EarliestDate;
+        DateOnly? upper = _selected_range?.End ?? PollHistory.LatestDate;
+        IEnumerable<RawPoll> polls = from p in PollHistory.Polls
+                                     where p.Date >= lower
+                                        && p.Date <= upper
+                                        && states.Contains(p.State)
+                                     select p;
+
+        if (states is [null] && _active_poll_sources != PollSource._ALL_)
+            polls = polls.Where(p => _active_poll_sources.HasFlag(p.Pollster)
+                                 || (_active_poll_sources.HasFlag(PollSource._OTHERS_) && !PollSource._WELL_DEFINED_.HasFlag(p.Pollster))
+            );
+
+        return new(from p in polls
+                   group p by p.Date into g
+                   select new MergedPoll([.. g]));
     }
 
     public async Task<PollHistory> RenderFetchingPrompt(Func<Task<PollHistory>> task)
@@ -995,9 +1016,10 @@ public sealed class Renderer
 
         using Bitmap bitmap = new(sixel_width, sixel_height, PixelFormat.Format32bppArgb);
         using Graphics g = Graphics.FromImage(bitmap);
-
-        g.Clear(Color.Transparent);
-        //g.DrawRectangle(Pens.Yellow, CHAR_W >> 1, CHAR_H >> 1, sixel_width - 1 - (CHAR_W >> 1), sixel_height - 1 - (CHAR_H >> 1));
+        using Pen dashed = new(ConsoleColor.DarkGray.ToColor() ?? Color.DimGray)
+        {
+            DashPattern = [3, 3],
+        };
 
 
         float get_xpos(DateOnly date)
@@ -1010,20 +1032,27 @@ public sealed class Renderer
         float get_ypos(float percentage) => (CHAR_H >> 1) + (1 - percentage / max_perc) * (sixel_height - 1 - (CHAR_H >> 1));
 
 
+        float y_5perc = get_ypos(.05f);
+
+        g.Clear(Color.Transparent);
+        g.DrawLine(dashed   , CHAR_W >> 1, y_5perc, sixel_width, y_5perc);
+
+        //g.DrawRectangle(Pens.Yellow, CHAR_W >> 1, CHAR_H >> 1, sixel_width - 1 - (CHAR_W >> 1), sixel_height - 1 - (CHAR_H >> 1));
+
 
         (float x, Dictionary<Party, float> y) last = (float.NaN, Party.All.ToDictionary(LINQ.id, p => float.NaN));
         Dictionary<Party, Pen> pens = Party.All.ToDictionary(LINQ.id, p => new Pen(p.Color.ToColor() ?? Color.Black));
 
-        foreach (MergedPoll lol in historic.Polls)
+        foreach (MergedPoll poll in historic.Polls)
         {
-            float x = get_xpos(lol.EarliestDate);
+            float x = get_xpos(poll.EarliestDate);
 
             if (float.IsNaN(last.x))
-                last = (x, lol.Percentages.ToDictionary());
+                last = (x, poll.Percentages.ToDictionary());
             else if (last.x == x)
                 continue;
 
-            foreach ((Party party, float value) in lol.Percentages)
+            foreach ((Party party, float value) in poll.Percentages)
             {
                 float y = get_ypos(value);
 
@@ -1032,6 +1061,25 @@ public sealed class Renderer
             }
 
             last.x = x;
+        }
+
+        if (selected_date is DateOnly sel)
+        {
+            float x = get_xpos(sel);
+
+            if (historic.GetMostRecentAt(sel) is MergedPoll poll)
+            {
+                using Pen selector = new(poll.StrongestParty?.Color.ToColor() ?? Color.White, 2);
+
+                g.DrawLine(selector, x, CHAR_H >> 1, x, sixel_height);
+
+                foreach ((Party party, float value) in poll.Percentages)
+                {
+                    float y = get_ypos(value);
+
+                    g.FillEllipse(new SolidBrush(pens[party].Color), x - 4, y - 4, 9, 9);
+                }
+            }
         }
 
         Console.SetCursorPosition(left, 2);
@@ -1099,15 +1147,17 @@ public sealed class Renderer
             {
                 (SourceCursorPosition.PollSource_ALL,             "ALLE ", PollSource._ALL_),
                 (SourceCursorPosition.PollSource_INVERT,          "INVT.", PollSource._INVERT_),
-                (SourceCursorPosition.PollSource_Allensbach,      "ALNSB", PollSource.Allensbach),
-                (SourceCursorPosition.PollSource_Emnid,           "EMNID", PollSource.Emnid),
                 (SourceCursorPosition.PollSource_Forsa,           "FORSA", PollSource.Forsa),
-                (SourceCursorPosition.PollSource_Ipsos,           "IPSOS", PollSource.Ipsos),
+                (SourceCursorPosition.PollSource_Emnid,           "EMNID", PollSource.Emnid),
                 (SourceCursorPosition.PollSource_Infratest_Dimap, "DIMAP", PollSource.Infratest_Dimap),
-                (SourceCursorPosition.PollSource_Insa,            "INSA ", PollSource.Insa),
-                (SourceCursorPosition.PollSource_GMS,             " GMS ", PollSource.GMS),
+                (SourceCursorPosition.PollSource_Insa,            "INSA", PollSource.Insa),
                 (SourceCursorPosition.PollSource_Politbarometer,  "POLIT", PollSource.Politbarometer),
-                (SourceCursorPosition.PollSource_Yougov,          "Y.GOV", PollSource.Yougov),
+                (SourceCursorPosition.PollSource_Allensbach,      "ALNSB", PollSource.Allensbach),
+                (SourceCursorPosition.PollSource_GMS,             " GMS ", PollSource.GMS),
+                (SourceCursorPosition.PollSource_Yougov,          "YOUGV", PollSource.Yougov),
+                (SourceCursorPosition.PollSource_Ipsos,           "IPSOS", PollSource.Ipsos),
+                //(SourceCursorPosition.PollSource_FGWahlen,        "FG.W.", PollSource.FGWahlen),
+                //(SourceCursorPosition.PollSource_Uni,             "UNIV.", PollSource.Universität),
                 (SourceCursorPosition.PollSource_OTHERS,          "SONS.", PollSource._OTHERS_),
             })
             {
@@ -1617,16 +1667,20 @@ public sealed class Renderer
                             _active_poll_sources ^= _source_cursor switch
                             {
                                 SourceCursorPosition.PollSource_INVERT => PollSource._ALL_,
-                                SourceCursorPosition.PollSource_Allensbach => PollSource.Allensbach,
-                                SourceCursorPosition.PollSource_Emnid => PollSource.Emnid,
                                 SourceCursorPosition.PollSource_Forsa => PollSource.Forsa,
-                                SourceCursorPosition.PollSource_Ipsos => PollSource.Ipsos,
+                                SourceCursorPosition.PollSource_Emnid => PollSource.Emnid,
                                 SourceCursorPosition.PollSource_Infratest_Dimap => PollSource.Infratest_Dimap,
                                 SourceCursorPosition.PollSource_Insa => PollSource.Insa,
-                                SourceCursorPosition.PollSource_GMS => PollSource.GMS,
                                 SourceCursorPosition.PollSource_Politbarometer => PollSource.Politbarometer,
+                                SourceCursorPosition.PollSource_Allensbach => PollSource.Allensbach,
+                                SourceCursorPosition.PollSource_GMS => PollSource.GMS,
                                 SourceCursorPosition.PollSource_Yougov => PollSource.Yougov,
-                                SourceCursorPosition.PollSource_OTHERS => PollSource._OTHERS_,
+                                SourceCursorPosition.PollSource_Ipsos => PollSource.Ipsos,
+                                // SourceCursorPosition.PollSource_Yougov => PollSource.Yougov,
+                                // SourceCursorPosition.PollSource_Uni => PollSource.Universität,
+                                SourceCursorPosition.PollSource_OTHERS => PollSource._WELL_DEFINED_ ^ PollSource.Forsa ^ PollSource.Emnid ^
+                                                                          PollSource.Infratest_Dimap ^ PollSource.Insa ^ PollSource.Politbarometer ^
+                                                                          PollSource.Allensbach ^ PollSource.GMS ^ PollSource.Yougov ^ PollSource.Ipsos,
                                 _ => PollSource._NONE_,
                             };
 

@@ -1,4 +1,5 @@
-﻿using System.Collections.ObjectModel;
+﻿using System.Text.RegularExpressions;
+using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -7,6 +8,7 @@ using System;
 
 using Unknown6656.Generics.Text;
 using Unknown6656.Generics;
+using Unknown6656;
 
 namespace Bundestagswahl;
 
@@ -102,7 +104,7 @@ file enum RawPollFlags
     SourceURI_NotNull = 8,
 }
 
-public sealed class RawPoll
+public sealed partial class RawPoll
     : IPoll
 {
     public static RawPoll Empty { get; } = new(new(1970, 1, 1), null, null, null, true, new Dictionary<Party, float>());
@@ -110,7 +112,9 @@ public sealed class RawPoll
 
     public DateOnly Date { get; }
 
-    public string? Pollster { get; }
+    public string RawPollster { get; }
+
+    public PollSource Pollster { get; }
 
     public string? SourceURI { get; }
 
@@ -120,8 +124,8 @@ public sealed class RawPoll
 
     public bool IsFederal => State is null;
 
-    string? IPoll.PollingSource => (Pollster ?? SourceURI)?.Replace(".html", ".htm", StringComparison.OrdinalIgnoreCase)
-                                                          ?.TrimEnd(".htm");
+    string? IPoll.PollingSource => (RawPollster ?? SourceURI)?.Replace(".html", ".htm", StringComparison.OrdinalIgnoreCase)
+                                                             ?.TrimEnd(".htm");
 
     public Party StrongestParty => Results.OrderByDescending(static kvp => kvp.Value).FirstOrDefault().Key ?? Party.__OTHER__;
 
@@ -130,11 +134,11 @@ public sealed class RawPoll
     public float this[Party p] => Results.ContainsKey(p) ? Results[p] : 0;
 
 
-    public RawPoll(DateOnly date, State? state, string? pollster, string? source_uri, bool synthetic, Dictionary<Party, float> values)
+    public RawPoll(DateOnly date, State? state, Union<string?, (string, PollSource)> pollster, string? source_uri, bool synthetic, Dictionary<Party, float> values)
     {
         Date = date;
         State = state;
-        Pollster = pollster;
+        (RawPollster, Pollster) = pollster.Match(ParsePollster, LINQ.id);
         SourceURI = source_uri;
         IsSynthetic = synthetic;
 
@@ -149,7 +153,7 @@ public sealed class RawPoll
         Results = new ReadOnlyDictionary<Party, float>(values);
     }
 
-    public RawPoll(DateOnly date, State? state, string? pollster, string? source_uri, bool synthetic, Dictionary<string, float> values)
+    public RawPoll(DateOnly date, State? state, Union<string?, (string, PollSource)> pollster, string? source_uri, bool synthetic, Dictionary<string, float> values)
         : this(date, state, pollster, source_uri, synthetic, new Func<Dictionary<Party, float>>(() =>
         {
             Dictionary<Party, float> percentages = [];
@@ -174,7 +178,6 @@ public sealed class RawPoll
 
         RawPollFlags flags = RawPollFlags.None
                            | (State is not null ? RawPollFlags.State_NotNull : 0)
-                           | (Pollster is not null ? RawPollFlags.Pollster_NotNull : 0)
                            | (SourceURI is not null ? RawPollFlags.SourceURI_NotNull : 0)
                            | (IsSynthetic ? RawPollFlags.IsSynthetic : 0);
 
@@ -183,12 +186,11 @@ public sealed class RawPoll
         if (State != null)
             writer.Write((byte)State);
 
-        if (Pollster != null)
-            writer.Write(Pollster);
-
         if (SourceURI != null)
             writer.Write(SourceURI);
 
+        writer.Write(RawPollster);
+        writer.Write((uint)Pollster);
         writer.Write(Results.Count);
 
         foreach ((Party party, float result) in Results)
@@ -207,17 +209,16 @@ public sealed class RawPoll
             byte day = reader.ReadByte();
             RawPollFlags flags = (RawPollFlags)reader.ReadByte();
             State? state = null;
-            string? pollster = null;
             string? source_uri = null;
 
             if (flags.HasFlag(RawPollFlags.State_NotNull))
                 state = (State)reader.ReadByte();
 
-            if (flags.HasFlag(RawPollFlags.Pollster_NotNull))
-                pollster = reader.ReadString();
-
             if (flags.HasFlag(RawPollFlags.SourceURI_NotNull))
                 source_uri = reader.ReadString();
+
+            string raw_pollster = reader.ReadString();
+            PollSource pollster = (PollSource)reader.ReadUInt32();
 
             bool synth = flags.HasFlag(RawPollFlags.IsSynthetic);
             int count = reader.ReadInt32();
@@ -238,13 +239,87 @@ public sealed class RawPoll
                     results[Party.__OTHER__] += result;
             }
 
-            return new(new(year, month, day), state, pollster, source_uri, synth, results);
+            return new(new(year, month, day), state, (raw_pollster, pollster), source_uri, synth, results);
         }
         catch
         {
             return null;
         }
     }
+
+    private static (string raw, PollSource source) ParsePollster(string? pollster)
+    {
+        pollster ??= "";
+        pollster = pollster.Replace('’', '\'');
+        pollster = new(pollster.SelectWhere(c => !(char.IsWhiteSpace(c) || c is '*' or '-' or '+' or '&' or '\'' or '"' or '!' or '(' or ')' or '[' or ']'), char.ToLowerInvariant).ToArray());
+
+        if (pollster is "")
+            return (pollster, PollSource._OTHERS_);
+
+        pollster = REGEX_TRIM_HTM().Replace(pollster ?? "", "");
+        pollster = REGEX_TRIM_SLASH().Replace(pollster ?? "", m => m.Groups[1].Value);
+
+        string raw = pollster;
+        PollSource source = pollster.Replace(".", "") switch
+        {
+            "wahlleiter" or "landeswahlleiter" or "bundeswahlleiter" or
+            ['l', 'a', 'n', 'd', 't', 'a', 'g', ..] or
+            ['b', 'u', 'n', 'd', 'e', 's', 't', 'a', 'g', ..] or
+            ['b', 'u', 'e', 'r', 'g', 'e', 'r', 's', 'c', 'h', 'a', 'f', 't', ..] => PollSource.Offiziell,
+            ['i', 'n', 'f', 'r', 'a', 't', 'e', 's', 't', ..] or
+            [.., 'i', 'n', 'f', 'r', 'a', 't', 'e', 's', 't'] or "dimap" => PollSource.Infratest_Dimap,
+            "forsa" => PollSource.Forsa,
+            "insa" => PollSource.Insa,
+            "emnid" or "verian" => PollSource.Emnid,
+            "allensbach" => PollSource.Allensbach,
+            "politbarometer" => PollSource.Politbarometer,
+            "fgwtelefonfeld" or "forschgrwahlen" or "forschungsgruppewahlen" => PollSource.FGWahlen,
+            "yougov" => PollSource.Yougov,
+            "ipos" or "ipsos" => PollSource.Ipsos,
+            "gms" => PollSource.GMS,
+            "apropro" or "aproxima" => PollSource.Approxima,
+            "tuilmenau" or ['u', 'n', 'i', _, ..] or "ifm" or "ifmleipzig" or "mifmmuenchen" or "infas" or "psephos" => PollSource.Universität,
+            "gess" or "gessphone" or "gessphonefield" => PollSource.Gess,
+
+
+            _ => PollSource._OTHERS_,
+            
+            //"absmarktforschung" => PollSource.,
+            //"amrduesseldorf" => PollSource.,
+            //"basisresearch" => PollSource.,
+            //"conoscope" => PollSource.,
+            //"customerresearch42" => PollSource.,
+            //"electionde" => PollSource.,
+            //"fbczaplicki" => PollSource.,
+            //"imfield" => PollSource.,
+            //"infogmbh" => PollSource.,
+            //"inra" => PollSource.,
+            //"iwd" => PollSource.,
+            //"konkretmarktforschung" => PollSource.,
+            //"mafode" => PollSource.,
+            //"marktforschungsservicedukath" => PollSource.,
+            //"mentefactum" => PollSource.,
+            //"omniquest" => PollSource.,
+            //"peinelt" => PollSource.,
+            //"pmgpolicymatters" => PollSource.,
+            //"polis" or "polissinus" => PollSource.,
+            //"pollytix" => PollSource.,
+            //"projektcontor" => PollSource.,
+            //"saarzoom" or "hippchen" => PollSource.,
+            //"tnsforschung" => PollSource.,
+            //"trendresearchhamburg" => PollSource.,
+
+            //"usuma" => PollSource.,
+        };
+
+        return (raw, source);
+    }
+
+    [GeneratedRegex(@"\.html?$", RegexOptions.Compiled)]
+    internal static partial Regex REGEX_TRIM_HTM();
+
+    [GeneratedRegex(@"^([^/]+)/.+$", RegexOptions.Compiled)]
+    internal static partial Regex REGEX_TRIM_SLASH();
 }
 
 public sealed class PollHistory
@@ -363,7 +438,7 @@ public sealed class PollHistory
         {
             RawPoll poll = Polls[i];
 
-            sb.AppendLine($"{i},{poll.Date:yyyy-MM-dd},\"{poll.Pollster}\",\"{poll.SourceURI}\",{poll.State?.ToString() ?? "DE"},{poll.IsSynthetic},{parties.Select(p => poll[p].ToString("P2")).StringJoin(",")}");
+            sb.AppendLine($"{i},{poll.Date:yyyy-MM-dd},\"{poll.RawPollster}\",\"{poll.SourceURI}\",{poll.State?.ToString() ?? "DE"},{poll.IsSynthetic},{parties.Select(p => poll[p].ToString("P2")).StringJoin(",")}");
         }
 
         return sb.ToString();
@@ -381,7 +456,7 @@ public sealed class PollHistory
             RawPoll poll = Polls[i];
 
             if (poll.State == state || (state is State.BE && poll.State is State.BE_W or State.BE_O))
-                sb.AppendLine($"{i},{poll.Date:yyyy-MM-dd},\"{poll.Pollster}\",\"{poll.SourceURI}\",{poll.State},{poll.IsSynthetic},{parties.Select(p => poll[p].ToString("P2")).StringJoin(",")}");
+                sb.AppendLine($"{i},{poll.Date:yyyy-MM-dd},\"{poll.RawPollster}\",\"{poll.SourceURI}\",{poll.State},{poll.IsSynthetic},{parties.Select(p => poll[p].ToString("P2")).StringJoin(",")}");
         }
 
         return sb.ToString();
@@ -537,7 +612,15 @@ public sealed class MergedPollHistory
         PollingDates = [.. Polls.Select(static p => p.LatestDate).Distinct()];
     }
 
-    public MergedPoll? GetMostRecentAt(DateOnly date) => Polls.SkipWhile(p => p.LatestDate > date).FirstOrDefault();
+    public MergedPoll? GetMostRecentAt(DateOnly date)
+    {
+        MergedPoll? poll = Polls.SkipWhile(p => p.LatestDate > date).FirstOrDefault();
+
+        if (poll == null && date.AddDays(1) >= OldestPoll?.EarliestDate)
+            return OldestPoll;
+        else
+            return poll;
+    }
 
     public string AsCSV()
     {
@@ -549,7 +632,7 @@ public sealed class MergedPollHistory
         for (int i = 0; i < Polls.Length; i++)
         {
             MergedPoll merged = Polls[i];
-            string pollsters = merged.Polls.Select(p => p.Pollster).Distinct().StringJoin(";");
+            string pollsters = merged.Polls.Select(p => p.RawPollster).Distinct().StringJoin(";");
             string sources = merged.Polls.Select(p => p.SourceURI).Distinct().StringJoin(";");
             string states = merged.Polls.Select(p => p.State?.ToString() ?? "DE").Distinct().StringJoin(";");
             float synthetic = (float)merged.Polls.Count(p => p.IsSynthetic) / merged.Polls.Length;
