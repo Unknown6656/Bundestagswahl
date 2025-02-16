@@ -13,7 +13,6 @@ using Unknown6656.Generics.Text;
 using Unknown6656.Generics;
 using Unknown6656.Runtime;
 using Unknown6656.Console;
-using System.Reflection.Metadata.Ecma335;
 
 namespace Bundestagswahl;
 
@@ -68,19 +67,50 @@ public enum StateCursorPosition
 
 public enum SourceCursorPosition
 {
-    Button_Last40Years,
-    Button_Last30Years,
-    Button_Last20Years,
-    Button_Last16Years,
-    Button_Last12Years,
-    Button_Last8Years,
-    Button_Last4Years,
-    Button_Last2Years,
-    Button_LastYear,
-    Button_Last6Months,
-    Button_Last3Months,
-    Button_LastMonth,
-    DateSelector,
+    TimeSource_Last40Years,
+    TimeSource_Last30Years,
+    TimeSource_Last20Years,
+    TimeSource_Last16Years,
+    TimeSource_Last12Years,
+    TimeSource_Last8Years,
+    TimeSource_Last4Years,
+    TimeSource_Last2Years,
+    TimeSource_LastYear,
+    TimeSource_Last6Months,
+    TimeSource_Last3Months,
+    TimeSource_LastMonth,
+
+    PollSource_ALL,
+    PollSource_INVERT,
+    PollSource_Allensbach,
+    PollSource_Emnid,
+    PollSource_Forsa,
+    PollSource_Ipsos,
+    PollSource_Infratest_Dimap,
+    PollSource_Insa,
+    PollSource_GMS,
+    PollSource_Politbarometer,
+    PollSource_Yougov,
+    PollSource_OTHERS,
+}
+
+[Flags]
+public enum PollSource
+    : ushort
+{
+    _NONE_          = 0b_0000_0000_0000_0000,
+    Allensbach      = 0b_0000_0000_0000_0001,
+    Emnid           = 0b_0000_0000_0000_0010,
+    Forsa           = 0b_0000_0000_0000_0100,
+    Ipsos           = 0b_0000_0000_0000_1000,
+    Infratest_Dimap = 0b_0000_0000_0001_0000,
+    Insa            = 0b_0000_0000_0010_0000,
+    GMS             = 0b_0000_0000_0100_0000,
+    Politbarometer  = 0b_0000_0000_1000_0000,
+    Yougov          = 0b_0000_0001_0000_0000,
+    _OTHERS_        = 0b_0000_0010_0000_0000,
+    _ALL_           = 0b_0000_0011_1111_1111,
+    _INVERT_        = 0b_1000_0000_0000_0000,
 }
 
 public enum OptionsCursorPosition
@@ -270,9 +300,10 @@ public sealed class Renderer
     private readonly Dictionary<State, bool> _selected_states = _state_values.ToDictionary(LINQ.id, static s => false);
     private readonly ConsoleState _console_state;
 
+    private PollSource _active_poll_sources = PollSource._ALL_;
     private StateCursorPosition _state_cursor = StateCursorPosition.Federal;
-    private SourceCursorPosition _source_cursor = SourceCursorPosition.Button_Last40Years;
-    private SourceCursorPosition? _current_source = SourceCursorPosition.Button_Last40Years;
+    private SourceCursorPosition _source_cursor = SourceCursorPosition.TimeSource_Last40Years;
+    private SourceCursorPosition? _current_source = SourceCursorPosition.TimeSource_Last40Years;
     private OptionsCursorPosition _option_cursor = OptionsCursorPosition.SixelRendering;
     private ModalPromptInfo? _modal_prompt = null;
     private Views _current_view = Views.States;
@@ -423,7 +454,7 @@ public sealed class Renderer
                     RenderResults(width, height, timeplot_height, display);
                 }
 
-                RenderOptions(Map.Height + 17, Map.Width + 2);
+                RenderOptions(Map.Height + 15, Map.Width + 2);
 
                 Console.ResetGraphicRenditions();
 
@@ -589,13 +620,12 @@ public sealed class Renderer
     {
         Console.SetCursorPosition(x, y);
         Console.BackgroundColor = ConsoleColor.Default;
+        Console.ForegroundColor = active ? ConsoleColor.Red : ConsoleColor.Cyan;
         Console.Write(' ');
-        Console.WriteFormatted(title, new()
-        {
-            ForegroundColor = active ? ConsoleColor.Red : ConsoleColor.Cyan,
-            Underlined = active ? TextUnderlinedMode.Single : TextUnderlinedMode.NotUnderlined,
-            Intensity = active ? TextIntensityMode.Bold : TextIntensityMode.Regular,
-        });
+        Console.TextUnderline = active ? TextUnderlinedMode.Single : TextUnderlinedMode.NotUnderlined;
+        Console.TextIntensity = active ? TextIntensityMode.Bold : TextIntensityMode.Regular;
+        Console.Write(title);
+        Console.ResetGraphicRenditions();
         Console.Write(' ');
     }
 
@@ -684,7 +714,7 @@ public sealed class Renderer
         RenderHoverUnderline(x + description.Length, y + 1, 14, hover);
     }
 
-    private static void RenderHoverUnderline(int x, int y, int width, bool? hover = true, char underline_char = '^' /* '°' */)
+    private static void RenderHoverUnderline(int x, int y, int width, bool? hover = true, char underline_char = '¨' /* '°' */)
     {
         if (hover is null)
             return;
@@ -713,17 +743,17 @@ public sealed class Renderer
             RenderFrameLine(0, Map.Height + 3, Map.Width + 4, true);
             RenderFrameLine(Map.Width + 3, timeplot_height, width - Map.Width - 3, true);
             RenderFrameLine(Map.Width + 32, 0, timeplot_height + 1, false);
-            RenderFrameLine(0, Map.Height + 15, Map.Width + 4, true);
+            RenderFrameLine(0, Map.Height + 13, Map.Width + 4, true);
         }
 
         if (_invalidate.HasFlag(RenderInvalidation.FrameText))
         {
             RenderTitle(3, 0, "ÜBERSICHTSKARTE DEUTSCHLAND", false);
             RenderTitle(3, Map.Height + 3, "BUNDESLÄNDER", _current_view is Views.States);
-            RenderTitle(Map.Width + 6, 0, "ZEITRAHMEN & QUELLE", _current_view is Views.Source);
+            RenderTitle(Map.Width + 6, 0, "ZEITRAHMEN & QUELLEN", _current_view is Views.Source);
             RenderTitle(Map.Width + 35, 0, "HISTORISCHER VERLAUF", _current_view is Views.Historic);
             RenderTitle(Map.Width + 6, timeplot_height, "UMFRAGEERGEBNISSE", false);
-            RenderTitle(3, Map.Height + 15, "OPTIONEN", _current_view is Views.Options);
+            RenderTitle(3, Map.Height + 13, "OPTIONEN", _current_view is Views.Options);
         }
     }
 
@@ -755,12 +785,12 @@ public sealed class Renderer
                     _state_values.ToDictionary(LINQ.id, s => selected_states.Contains(s) ? (coloring.States[s].Color, 'X') : (ConsoleColor.DarkGray, '·'))
                 ), 2, 2);
 
-        int sel_width = Map.Width / 8;
+        int sel_width = Map.Width / 7;
 
         if (_invalidate.HasFlag(RenderInvalidation.StateSelector))
             foreach ((StateCursorPosition cursor, int index) in _state_cursor_values.WithIndex())
             {
-                int x = 3 + (index % sel_width) * 8;
+                int x = 3 + (index % sel_width) * 7;
                 int y = Map.Height + 5 + (index / sel_width) * 2;
                 State state = (State)cursor;
 
@@ -1030,27 +1060,28 @@ public sealed class Renderer
         if (PollHistory.Polls.Length > 0)
         {
             int index = 0;
+            int yoffs = -1;
 
             foreach ((SourceCursorPosition cursor, string text) in new[]
             {
-                (SourceCursorPosition.Button_Last40Years, "40y"),
-                (SourceCursorPosition.Button_Last30Years, "30y"),
-                (SourceCursorPosition.Button_Last20Years, "20y"),
-                (SourceCursorPosition.Button_Last16Years, "16y"),
-                (SourceCursorPosition.Button_Last12Years, "12y"),
-                (SourceCursorPosition.Button_Last8Years, "8 y"),
-                (SourceCursorPosition.Button_Last4Years, "4 y"),
-                (SourceCursorPosition.Button_Last2Years, "2 y"),
-                (SourceCursorPosition.Button_LastYear, "1 y"),
-                (SourceCursorPosition.Button_Last6Months, "6 m"),
-                (SourceCursorPosition.Button_Last3Months, "3 m"),
-                (SourceCursorPosition.Button_LastMonth, "1 m"),
+                (SourceCursorPosition.TimeSource_Last40Years, "40y"),
+                (SourceCursorPosition.TimeSource_Last30Years, "30y"),
+                (SourceCursorPosition.TimeSource_Last20Years, "20y"),
+                (SourceCursorPosition.TimeSource_Last16Years, "16y"),
+                (SourceCursorPosition.TimeSource_Last12Years, "12y"),
+                (SourceCursorPosition.TimeSource_Last8Years, "8 y"),
+                (SourceCursorPosition.TimeSource_Last4Years, "4 y"),
+                (SourceCursorPosition.TimeSource_Last2Years, "2 y"),
+                (SourceCursorPosition.TimeSource_LastYear, "1 y"),
+                (SourceCursorPosition.TimeSource_Last6Months, "6 m"),
+                (SourceCursorPosition.TimeSource_Last3Months, "3 m"),
+                (SourceCursorPosition.TimeSource_LastMonth, "1 m"),
             })
             {
                 RenderButton(
-                    left + (index % 3) * 9,
-                    6 + (index / 3) * 2,
-                    7,
+                    left + (index % 4) * 6,
+                    yoffs = 6 + (index / 4) * 2,
+                    5,
                     text,
                     ConsoleColor.White,
                     cursor == _current_source,
@@ -1060,20 +1091,41 @@ public sealed class Renderer
                 ++index;
             }
 
+            bool enabled = _selected_states.Values.All(LINQ.id);
 
-            bool active = _source_cursor is SourceCursorPosition.DateSelector && _current_view is Views.Source;
+            index = 0;
 
-            RenderDateSelector(left, 14, "DATUM", 23, _selected_range?.Cursor, active);
+            foreach ((SourceCursorPosition cursor, string text, PollSource source) in new[]
+            {
+                (SourceCursorPosition.PollSource_ALL,             "ALLE ", PollSource._ALL_),
+                (SourceCursorPosition.PollSource_INVERT,          "INVT.", PollSource._INVERT_),
+                (SourceCursorPosition.PollSource_Allensbach,      "ALNSB", PollSource.Allensbach),
+                (SourceCursorPosition.PollSource_Emnid,           "EMNID", PollSource.Emnid),
+                (SourceCursorPosition.PollSource_Forsa,           "FORSA", PollSource.Forsa),
+                (SourceCursorPosition.PollSource_Ipsos,           "IPSOS", PollSource.Ipsos),
+                (SourceCursorPosition.PollSource_Infratest_Dimap, "DIMAP", PollSource.Infratest_Dimap),
+                (SourceCursorPosition.PollSource_Insa,            "INSA ", PollSource.Insa),
+                (SourceCursorPosition.PollSource_GMS,             " GMS ", PollSource.GMS),
+                (SourceCursorPosition.PollSource_Politbarometer,  "POLIT", PollSource.Politbarometer),
+                (SourceCursorPosition.PollSource_Yougov,          "Y.GOV", PollSource.Yougov),
+                (SourceCursorPosition.PollSource_OTHERS,          "SONS.", PollSource._OTHERS_),
+            })
+            {
+                bool special = source is PollSource._ALL_ or PollSource._INVERT_;
+
+                RenderButton(
+                    left + (index % 3) * 8,
+                    yoffs + (1 + index / 3) * 2,
+                    7,
+                    text,
+                    enabled ? special ? ConsoleColor.White : ConsoleColor.Yellow : ConsoleColor.DarkGray,
+                    enabled && (special ? _active_poll_sources == source : _active_poll_sources.HasFlag(source)),
+                    enabled && cursor == _source_cursor && _current_view is Views.Source
+                );
+
+                ++index;
+            }
         }
-        else
-        {
-            // TODO : ?
-        }
-
-
-        // TODO : source
-
-
     }
 
     private void RenderResults(int width, int height, int timeplot_height, IPoll? poll)
@@ -1499,21 +1551,26 @@ public sealed class Renderer
                             _selected_states[state] = target_states.Contains(state);
                     }
 
+                    if (!_selected_states.Values.All(LINQ.id))
+                        _source_cursor = (SourceCursorPosition)Math.Min((int)_source_cursor, (int)SourceCursorPosition.TimeSource_LastMonth);
+
                     return GetRenderInvalidation(Views.Historic)
-                         | GetRenderInvalidation(Views.States);
+                         | GetRenderInvalidation(Views.States)
+                         | GetRenderInvalidation(Views.Source);
 
                 #endregion
                 #region SOURCE / DATE SELECTION
 
                 case (KEY_LEFT or KEY_RIGHT, Views.Source):
                     {
+                        int max = (int)(_selected_states.Values.All(LINQ.id) ? SourceCursorPosition.PollSource_OTHERS : SourceCursorPosition.TimeSource_LastMonth) + 1;
                         int offs = key.Key == KEY_LEFT ? -1 : 1;
 
-                        _source_cursor = _source_cursor < SourceCursorPosition.DateSelector ? _source_cursor + offs : _source_cursor;
+                        _source_cursor = (SourceCursorPosition)((int)(_source_cursor + offs + max) % max);
 
                         return GetRenderInvalidation(Views.Source);
                     }
-                case (KEY_ENTER, Views.Source) when _source_cursor <= SourceCursorPosition.Button_LastMonth:
+                case (KEY_ENTER, Views.Source) when _source_cursor <= SourceCursorPosition.TimeSource_LastMonth:
                     {
                         bool changed = _source_cursor != _current_source;
 
@@ -1523,18 +1580,18 @@ public sealed class Renderer
                         {
                             (int years, int months) = _current_source switch
                             {
-                                SourceCursorPosition.Button_Last40Years => (40, 0),
-                                SourceCursorPosition.Button_Last30Years => (30, 0),
-                                SourceCursorPosition.Button_Last20Years => (20, 0),
-                                SourceCursorPosition.Button_Last16Years => (16, 0),
-                                SourceCursorPosition.Button_Last12Years => (12, 0),
-                                SourceCursorPosition.Button_Last8Years => (8, 0),
-                                SourceCursorPosition.Button_Last4Years => (4, 0),
-                                SourceCursorPosition.Button_Last2Years => (2, 0),
-                                SourceCursorPosition.Button_LastYear => (1, 0),
-                                SourceCursorPosition.Button_Last6Months => (0, 6),
-                                SourceCursorPosition.Button_Last3Months => (0, 3),
-                                SourceCursorPosition.Button_LastMonth => (0, 1),
+                                SourceCursorPosition.TimeSource_Last40Years => (40, 0),
+                                SourceCursorPosition.TimeSource_Last30Years => (30, 0),
+                                SourceCursorPosition.TimeSource_Last20Years => (20, 0),
+                                SourceCursorPosition.TimeSource_Last16Years => (16, 0),
+                                SourceCursorPosition.TimeSource_Last12Years => (12, 0),
+                                SourceCursorPosition.TimeSource_Last8Years => (8, 0),
+                                SourceCursorPosition.TimeSource_Last4Years => (4, 0),
+                                SourceCursorPosition.TimeSource_Last2Years => (2, 0),
+                                SourceCursorPosition.TimeSource_LastYear => (1, 0),
+                                SourceCursorPosition.TimeSource_Last6Months => (0, 6),
+                                SourceCursorPosition.TimeSource_Last3Months => (0, 3),
+                                SourceCursorPosition.TimeSource_LastMonth => (0, 1),
                                 _ => (0, 0),
                             };
 
@@ -1551,6 +1608,30 @@ public sealed class Renderer
                         return changed ? GetRenderInvalidation(Views.Historic)
                                        | GetRenderInvalidation(Views.Source)
                                        : RenderInvalidation.None;
+                    }
+                case (KEY_ENTER, Views.Source):
+                    {
+                        if (_source_cursor is SourceCursorPosition.PollSource_ALL)
+                            _active_poll_sources = _active_poll_sources == PollSource._ALL_ ? PollSource._NONE_ : PollSource._ALL_;
+                        else
+                            _active_poll_sources ^= _source_cursor switch
+                            {
+                                SourceCursorPosition.PollSource_INVERT => PollSource._ALL_,
+                                SourceCursorPosition.PollSource_Allensbach => PollSource.Allensbach,
+                                SourceCursorPosition.PollSource_Emnid => PollSource.Emnid,
+                                SourceCursorPosition.PollSource_Forsa => PollSource.Forsa,
+                                SourceCursorPosition.PollSource_Ipsos => PollSource.Ipsos,
+                                SourceCursorPosition.PollSource_Infratest_Dimap => PollSource.Infratest_Dimap,
+                                SourceCursorPosition.PollSource_Insa => PollSource.Insa,
+                                SourceCursorPosition.PollSource_GMS => PollSource.GMS,
+                                SourceCursorPosition.PollSource_Politbarometer => PollSource.Politbarometer,
+                                SourceCursorPosition.PollSource_Yougov => PollSource.Yougov,
+                                SourceCursorPosition.PollSource_OTHERS => PollSource._OTHERS_,
+                                _ => PollSource._NONE_,
+                            };
+
+                        return GetRenderInvalidation(Views.Historic)
+                             | GetRenderInvalidation(Views.Source);
                     }
 
                 #endregion
