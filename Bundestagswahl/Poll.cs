@@ -612,14 +612,19 @@ public sealed class MergedPollHistory
         PollingDates = [.. Polls.Select(static p => p.LatestDate).Distinct()];
     }
 
-    public MergedPoll? GetMostRecentAt(DateOnly date)
+    public MergedPoll? GetMostRecentAt(DateOnly? date)
     {
-        MergedPoll? poll = Polls.SkipWhile(p => p.LatestDate > date).FirstOrDefault();
+        if (date is DateOnly d)
+        {
+            MergedPoll? poll = Polls.SkipWhile(p => p.LatestDate > d).FirstOrDefault();
 
-        if (poll == null && date.AddDays(1) >= OldestPoll?.EarliestDate)
-            return OldestPoll;
+            if (poll == null && OldestPoll?.EarliestDate <= d.AddDays(1))
+                return OldestPoll;
+            else
+                return poll;
+        }
         else
-            return poll;
+            return null;
     }
 
     public string AsCSV()
