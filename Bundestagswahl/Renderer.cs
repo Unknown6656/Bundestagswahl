@@ -454,8 +454,8 @@ public sealed class Renderer
                                  | RenderInvalidation.HistoricPlot) != 0)
                 {
                     MergedPollHistory historic = FetchPolls();
-                    MergedPoll? display = historic.Polls.FirstOrDefault(p => p.EarliestDate <= _selected_range?.Cursor && p.LatestDate >= _selected_range?.Cursor);
-                    MergedPoll? previous = historic.Polls.FirstOrDefault(p => p.EarliestDate <= _selected_range?.Cursor.AddDays(-1) && p.LatestDate >= _selected_range?.Cursor.AddDays(-1));
+                    MergedPoll? display = historic.GetMostRecentAt(_selected_range?.Cursor);
+                    MergedPoll? previous = historic.GetMostRecentAt(_selected_range?.Cursor.AddDays(-2));
 
                     RenderHistoricPlot(width, timeplot_height, historic);
                     RenderResults(width, height, timeplot_height, display, previous);
@@ -1429,21 +1429,27 @@ public sealed class Renderer
         Console.Write($" {percentage,6:P1} ");
         (Console.ForegroundColor, char arrow) = percentage_change switch
         {
-            < -.01f => (ConsoleColor.Red, '▼'),
-            > .01f => (ConsoleColor.Green, '▲'),
-            _ => (ConsoleColor.DarkGray, ' '),
+            <= -.001f => (ConsoleColor.Red, '▼'),
+            >= .001f => (ConsoleColor.Green, '▲'),
+            _ => (ConsoleColor.DarkGray, '·'),
         };
         Console.Write($"{arrow}{float.Abs(percentage_change),5:P1} ");
         Console.ForegroundColor = ConsoleColor.Default;
         Console.Write(status);
-        Console.CursorLeft = left + 5 + (int)float.Round((width - 1) * .05f / poll_max_percentage); // 5%-Hürde
         Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.Write('¦');
 
-        for (float d = 0; d <= poll_max_percentage; d += .125f)
+        for (float d = 0; d <= poll_max_percentage; d += .05f)
         {
-            Console.CursorLeft = left + 5 + (int)float.Round((width - 1) * d / poll_max_percentage);
-            Console.Write(d is 0 or 1 or .5f ? '¦' : ':');
+            d = float.Round(d, 3);
+
+            Console.SetCursorPosition(left + 5 + (int)float.Round((width - 1) * d / poll_max_percentage), top);
+            Console.Write(d is 0f or .5f or .05f or 1f ? '¦' : ':');
+
+            if (render_percentage_axis && d > 0)
+            {
+                Console.SetCursorPosition(left + 4 + (int)float.Round((width - 1) * d / poll_max_percentage), top + 1);
+                Console.Write($"{d,3:P0}");
+            }
         }
 
         int w = (int)(percentage / poll_max_percentage * width);
