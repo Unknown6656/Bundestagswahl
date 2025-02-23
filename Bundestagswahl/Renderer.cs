@@ -1313,12 +1313,13 @@ public sealed class Renderer
             Console.ForegroundColor = ConsoleColor.Default;
             Console.Write("Koalitionsmöglichkeiten:");
 
-            Coalition[] coalitions = poll is { } ? Coalitions.Select(parties => new Coalition(poll, parties))
-                                                             .Where(c => c.CoalitionPercentage >  .20 & c.CoalitionParties.Length >= 1) // filter coalitions where all other parties are < 5%
-                                                             .OrderByDescending(c => c.CoalitionPercentage)
-                                                             .Distinct()
-                                                             .Take(vertical_space)
-                                                             .ToArray() : [];
+            Coalition[] coalitions = poll is { } ? [..(from pp in Coalitions
+                                                       let c = new Coalition(poll, pp)
+                                                       where c.CoalitionPercentage > (c.CoalitionParties.Length > 1 ? .2f : .32f)
+                                                       orderby c.CoalitionPercentage descending
+                                                       select c)
+                                                      .Distinct()
+                                                      .Take(vertical_space)] : [];
 
             foreach ((Coalition coalition, int index) in coalitions.WithIndex())
                 RenderCoalition(left + coalition_x, top + index + 2, width - coalition_x - 5, poll is { } ? coalition : null);
