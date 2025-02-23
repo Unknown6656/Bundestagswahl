@@ -455,9 +455,10 @@ public sealed class Renderer
                 {
                     MergedPollHistory historic = FetchPolls();
                     MergedPoll? display = historic.Polls.FirstOrDefault(p => p.EarliestDate <= _selected_range?.Cursor && p.LatestDate >= _selected_range?.Cursor);
+                    MergedPoll? previous = historic.Polls.FirstOrDefault(p => p.EarliestDate <= _selected_range?.Cursor.AddDays(-1) && p.LatestDate >= _selected_range?.Cursor.AddDays(-1));
 
                     RenderHistoricPlot(width, timeplot_height, historic);
-                    RenderResults(width, height, timeplot_height, display);
+                    RenderResults(width, height, timeplot_height, display, previous);
                 }
 
                 RenderOptions(Map.Height + 15, Map.Width + 2);
@@ -1178,7 +1179,7 @@ public sealed class Renderer
         }
     }
 
-    private void RenderResults(int width, int height, int timeplot_height, IPoll? poll)
+    private void RenderResults(int width, int height, int timeplot_height, IPoll? poll, IPoll? previous)
     {
         int left = Map.Width + 6;
         int top = timeplot_height + 2;
@@ -1193,17 +1194,26 @@ public sealed class Renderer
 
             if (poll is { })
             {
-                Console.Write($"Umfrageergebnis am {ConsoleColor.Yellow.ToVT520(ConsoleColorMode.Foreground)}{poll.Date:yyyy-MM-dd}{ConsoleColor.Default.ToVT520(ConsoleColorMode.Foreground)} für: ");
-                Console.Write(string.Join(", ", from kvp in _selected_states
-                                                where kvp.Value
-                                                let color = MapColoring.Default.States[kvp.Key].Color
-                                                select $"{color.ToVT520(ConsoleColorMode.Foreground)}{kvp.Key}{ConsoleColor.Default.ToVT520(ConsoleColorMode.Foreground)}"));
+                string display_str = $"Ergebnis am {ConsoleColor.Yellow.ToVT520(ConsoleColorMode.Foreground)}{poll.Date:yyyy-MM-dd}{ConsoleColor.Default.ToVT520(ConsoleColorMode.Foreground)} für: ";
+
+                display_str += string.Join(", ", from kvp in _selected_states
+                                                 where kvp.Value
+                                                 let color = MapColoring.Default.States[kvp.Key].Color
+                                                 select $"{color.ToVT520(ConsoleColorMode.Foreground)}{kvp.Key}{ConsoleColor.Default.ToVT520(ConsoleColorMode.Foreground)}");
+
+                List<string> lines = VT520.SplitLinesWithVT520([display_str], width - 5, true);
+                display_str = lines[0];
+
+                if (lines.Count > 1)
+                    display_str += "\e[0m...";
+
+                Console.Write(display_str);
 
                 if (Console.WindowWidth - 2 - Console.CursorLeft is int cw and > 0)
                     Console.Write(new string(' ', cw));
 
-                Console.SetCursorPosition(left + 20, top + 1);
-                Console.Write($"Umfragequelle: ");
+                Console.SetCursorPosition(left + 10, top + 1);
+                Console.Write($"Umfragequelle(n): ");
 
                 if (poll.PollingSource is string source)
                 {
@@ -1224,7 +1234,7 @@ public sealed class Renderer
             }
 
             foreach ((Party party, int index) in Party.All.WithIndex())
-                RenderPartyResult(left, top + 3 + index, width, poll, party);
+                RenderPartyResult(left, top + 3 + index, width, poll, previous, party);
         }
 
         top += 5 + Party.All.Length;
@@ -1378,9 +1388,19 @@ public sealed class Renderer
         return (width, height);
     }
 
-    private static void RenderPartyResult(int left, int top, int width, IPoll? poll, Party party)
+    private static void RenderPartyResult(int left, int top, int width, IPoll? poll, IPoll? previous, Party party)
     {
-        width -= 21;
+        width -= 27;
+        previous ??= poll;
+
+        float percentage_change = poll?[party] - previous?[party] ?? 0;
+        float poll_max_percentage = (poll is null ? 0 : poll[poll.StrongestParty]) switch
+        {
+            <= .25f => 1f / 3,
+            <= .66f => .5f,
+            <= .75f => 2f / 3,
+            _ => 1f,
+        };
 
         Console.ResetGraphicRenditions();
         Console.SetCursorPosition(left, top);
@@ -1405,20 +1425,28 @@ public sealed class Renderer
         Console.ForegroundColor = ConsoleColor.DarkGray;
         Console.Write(new string('·', width));
         Console.ForegroundColor = ConsoleColor.Default;
-        Console.Write($" {percentage,6:P1}  {status}");
-
-        Console.CursorLeft = left + 5 + (int)float.Round((width - 1) * .05f); // 5%-Hürde
+        Console.Write($" {percentage,6:P1} ");
+        (Console.ForegroundColor, char arrow) = percentage_change switch
+        {
+            < -.01f => (ConsoleColor.Red, '▼'),
+            > .01f => (ConsoleColor.Green, '▲'),
+            _ => (ConsoleColor.DarkGray, ' '),
+        };
+        Console.Write($"{arrow}{float.Abs(percentage_change),5:P1} ");
+        Console.ForegroundColor = ConsoleColor.Default;
+        Console.Write(status);
+        Console.CursorLeft = left + 5 + (int)float.Round((width - 1) * .05f / poll_max_percentage); // 5%-Hürde
         Console.ForegroundColor = ConsoleColor.DarkGray;
         Console.Write('¦');
 
-        for (float d = 0; d <= 1; d += .125f)
+        for (float d = 0; d <= poll_max_percentage; d += .125f)
         {
-            Console.CursorLeft = left + 5 + (int)float.Round((width - 1) * d);
+            Console.CursorLeft = left + 5 + (int)float.Round((width - 1) * d / poll_max_percentage);
             Console.Write(d is 0 or 1 or .5f ? '¦' : ':');
         }
 
-        int w = (int)(percentage * width);
-        char end = " ⡀⡄⡆⡇⣇⣧⣷"[(int)(8 * (percentage * width - w))];
+        int w = (int)(percentage / poll_max_percentage * width);
+        char end = " ⡀⡄⡆⡇⣇⣧⣷"[(int)(8 * (percentage / poll_max_percentage * width - w))];
 
         Console.SetCursorPosition(left + 5, top);
         Console.ForegroundColor = party.Color;
