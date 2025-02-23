@@ -304,6 +304,7 @@ public sealed class Renderer
 
     private (DateOnly Start, DateOnly End, DateOnly Cursor)? _selected_range;
     private readonly Dictionary<State, bool> _selected_states = _state_values.ToDictionary(LINQ.id, static s => false);
+    private readonly HashSet<Party> _5percent_exception = [];
     private readonly ConsoleState _console_state;
 
     private PollSource _active_poll_sources = PollSource._ALL_;
@@ -1234,7 +1235,15 @@ public sealed class Renderer
             }
 
             foreach ((Party party, int index) in Party.All.WithIndex())
-                RenderPartyResult(left, top + 3 + index, width, poll, previous, party);
+                RenderPartyResult(left, top + 3 + index, width, poll, previous, party, index == Party.All.Length - 1);
+
+            int diff_indicator_x = left + width - 11;
+
+            Console.SetCursorPosition(diff_indicator_x, top + 3 + Party.All.Length);
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write('│');
+            Console.SetCursorPosition(diff_indicator_x - 8, top + 4 + Party.All.Length);
+            Console.Write($"ggü. {previous?.Date:yyyy-MM-dd}");
         }
 
         top += 5 + Party.All.Length;
@@ -1389,7 +1398,7 @@ public sealed class Renderer
         return (width, height);
     }
 
-    private static void RenderPartyResult(int left, int top, int width, IPoll? poll, IPoll? previous, Party party)
+    private static void RenderPartyResult(int left, int top, int width, IPoll? poll, IPoll? previous, Party party, bool render_percentage_axis)
     {
         width -= 27;
         previous ??= poll;
@@ -1397,9 +1406,9 @@ public sealed class Renderer
         float percentage_change = poll?[party] - previous?[party] ?? 0;
         float poll_max_percentage = (poll is null ? 0 : poll[poll.StrongestParty]) switch
         {
-            <= .25f => 1f / 3,
-            <= .66f => .5f,
-            <= .75f => 2f / 3,
+            <= .20f => .25f,
+            <= .45f => .50f,
+            <= .70f => .75f,
             _ => 1f,
         };
 
