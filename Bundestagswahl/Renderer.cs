@@ -45,6 +45,10 @@ public enum StateCursorPosition
     Population,
     PopulationGrowth,
     Economy,
+
+    // TODO : flächenländer
+    // TODO : stadtländer
+
     BW = State.BW,
     BY = State.BY,
     BE = State.BE,
@@ -1322,13 +1326,20 @@ public sealed class Renderer
             Console.ForegroundColor = ConsoleColor.Default;
             Console.Write("Koalitionsmöglichkeiten:");
 
-            Coalition[] coalitions = poll is { } ? [..(from pp in Coalitions
-                                                       let c = new Coalition(poll, pp)
-                                                       where c.CoalitionPercentage > (c.CoalitionParties.Length > 1 ? .2f : .32f)
-                                                       orderby c.CoalitionPercentage descending
-                                                       select c)
-                                                      .Distinct()
-                                                      .Take(vertical_space)] : [];
+            Coalition[] coalitions = poll is { } ? (from pp in Coalitions
+                                                    let c = new Coalition(poll, pp)
+                                                    where c.CoalitionPercentage > (c.CoalitionParties.Length > 1 ? .2f : .32f)
+                                                    orderby c.CoalitionPercentage descending
+                                                    select c
+                                                   ).Concat(
+                                                    from p in Party.LeftToRight
+                                                    let c = new Coalition(poll, [p])
+                                                    where c.CoalitionPercentage > .33f
+                                                    orderby c.CoalitionPercentage descending
+                                                    select c
+                                                   ).Distinct()
+                                                    .Take(vertical_space)
+                                                    .ToArray() : [];
 
             foreach ((Coalition coalition, int index) in coalitions.WithIndex())
                 RenderCoalition(left + coalition_x, top + index + 2, width - coalition_x - 5, poll is { } ? coalition : null);
@@ -1413,6 +1424,8 @@ public sealed class Renderer
         };
 
         Console.ResetGraphicRenditions();
+        Console.SetCursorPosition(left + 5, top + 1);
+        Console.Write(new string(' ', width - 1));
         Console.SetCursorPosition(left, top);
         Console.Write("\e[m" + party.Identifier.ToString().ToUpper());
 
@@ -1433,7 +1446,7 @@ public sealed class Renderer
 
         Console.CursorLeft = left + 5;
         Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.Write(new string('·', width));
+        Console.Write(new string('·', width - 1));
         Console.ForegroundColor = ConsoleColor.Default;
         Console.Write($" {percentage,6:P1} ");
         (Console.ForegroundColor, char arrow) = percentage_change switch
@@ -1459,6 +1472,12 @@ public sealed class Renderer
                 Console.SetCursorPosition(left + 4 + (int)float.Round((width - 1) * d / poll_max_percentage), top + 1);
                 Console.Write($"{d,3:P0}");
             }
+        }
+
+        if (poll_max_percentage > .34)
+        {
+            Console.SetCursorPosition(left + 5 + (int)float.Round((width - 1) * .333f / poll_max_percentage), top);
+            Console.Write(':');
         }
 
         int w = (int)(percentage / poll_max_percentage * width);

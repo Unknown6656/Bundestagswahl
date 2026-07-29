@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Collections;
 using System.Diagnostics;
 using System.Linq;
@@ -7,7 +7,7 @@ using System;
 namespace Bundestagswahl;
 
 
-public unsafe struct PartyIdentifier
+public struct PartyIdentifier
     : IEquatable<PartyIdentifier>
     , IEnumerable<char>
 {
@@ -43,13 +43,13 @@ public sealed class Party(PartyIdentifier identifier, string name, ConsoleColor 
 {
     public static Party CDU { get; }       = new("cdu", "CDU/CSU",         new(217, 200, 235),  .3f,  -.3f,  .8f); // (117, 100, 135)
     public static Party SPD { get; }       = new("spd", "SPD",             new(255,  40,  40), -.3f,  -.4f,  .1f);
-    public static Party FDP { get; }       = new("fdp", "FDP",             new(255, 200,   0),  .6f,   .5f, -.4f);
-    public static Party AFD { get; }       = new("afd", "AfD",             new(  0, 158, 224),  .5f,  -.8f,  .9f);
+    public static Party FDP { get; }       = new("fdp", "FDP",             new(255, 200,   0),  .5f,   .5f, -.4f);
+    public static Party AFD { get; }       = new("afd", "AfD",             new(  0, 158, 224),  .6f,  -.8f,  .9f);
     public static Party GRÜNE { get; }     = new("grü", "B.90/Die Grünen", new( 60, 155,   0), -.5f,   .1f, -.7f);
     public static Party LINKE { get; }     = new("lin", "Die Linke",       new(255,  10, 150), -.7f, -.65f, -.8f);
     public static Party PIRATEN { get; }   = new("pir", "Die Piraten",     new(255, 135,   0), -.1f,   .8f, -.7f);
     public static Party FW { get; }        = new("fw",  "Freie Wähler",    new(  0,  70, 255),  .4f,   .0f,  .7f);
-    public static Party RECHTE { get; }    = new("rep", "NPD/REP/Rechte",  new(170, 122,  44),  .9f,  -.8f,  .8f);
+    public static Party RECHTE { get; }    = new("rep", "NPD/REP/Rechte",  new(170, 122,  44),  .9f, -.85f,  .8f);
     public static Party BSW { get; }       = new("bsw", "BSW",             new(200,   0,  80), -.5f,  -.8f, -.2f); // (111,   0,  60)
     public static Party __OTHER__ { get; } = new("son", "Sonstige",        new(126, 176, 165),  .0f,   .0f,  .0f);
 
